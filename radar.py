@@ -1,229 +1,445 @@
-import html
 import os
-import re
-import smtplib
-import ssl
-from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from typing import Any, Dict, List, Optional, Tuple
-
-import feedparser
+import html
 import yaml
-from dateutil import parser as date_parser
+import feedparser
+from datetime import datetime
+from urllib.parse import urlparse
 
 
-@dataclass
-class Hit:
-    company: str
-    title: str
-    source: str
-    url: str
-    published: Optional[datetime]
-    score: int
-    level: str
-    matched_terms: List[str]
-    recommendation: str
-    summary: str
+CONFIG_FILE = "config.yaml"
+OUTPUT_DIR = "public"
+OUTPUT_FILE = "index.html"
 
 
-def strip_html(value: str) -> str:
-    value = re.sub(r"<[^>]+>", " ", value or "")
-    value = html.unescape(value)
-    return re.sub(r"\s+", " ", value).strip()
-
-
-def parse_date(entry: Any) -> Optional[datetime]:
-    for key in ("published", "updated", "created"):
-        raw = getattr(entry, key, None) or entry.get(key)
-        if raw:
-            try:
-                dt = date_parser.parse(raw)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(timezone.utc)
-            except Exception:
-                continue
-    # feedparser sometimes exposes parsed structs
-    for key in ("published_parsed", "updated_parsed"):
-        parsed = getattr(entry, key, None) or entry.get(key)
-        if parsed:
-            return datetime(*parsed[:6], tzinfo=timezone.utc)
-    return None
-
-
-def load_config(path: str = "config.yaml") -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def load_config():
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def text_contains_company(text: str, company: str) -> bool:
-    # Word-ish boundary. Allows names like T-Mobile and O2.
-    return re.search(rf"(?<!\w){re.escape(company)}(?!\w)", text, flags=re.IGNORECASE) is not None
+def normalise_text(value):
+    if not value:
+        return ""
+    return " ".join(str(value).split())
 
 
-def find_signal(text: str, config: Dict[str, Any]) -> Tuple[int, str, List[str]]:
-    best_score = 0
-    best_level = "none"
-    matched: List[str] = []
-    for level, data in config["signals"].items():
-        level_score = int(data["score"])
-        terms = data.get("terms", [])
-        level_matches = [term for term in terms if re.search(re.escape(term), text, flags=re.IGNORECASE)]
-        if level_matches and level_score > best_score:
-            best_score = level_score
-            best_level = level
-            matched = level_matches
-    return best_score, best_level, matched
+def score_entry(title, summary, config):
+    text = f"{title} {summary}".lower()
+    score = 0
+    matched_keywords = []
+
+    scoring = config.get("scoring", {})
+
+    for level, points in scoring.items():
+        keywords = config.get("keywords", {}).get(level, [])
+        for keyword in keywords:
+            if keyword.lower() in text:
+                score += int(points)
+                matched_keywords.append(keyword)
+
+    return score, matched_keywords
 
 
-def classify_hits(config: Dict[str, Any]) -> Tuple[List[Hit], List[str]]:
-    now = datetime.now(timezone.utc)
-    lookback = timedelta(hours=int(config.get("lookback_hours", 30)))
-    min_score = int(config.get("min_score_to_report", 25))
-    hits: List[Hit] = []
-    errors: List[str] = []
-    seen_urls = set()
+def detect_companies(title, summary, config):
+    text = f"{title} {summary}".lower()
+    companies = []
 
-    for feed in config.get("feeds", []):
-        source = feed.get("name", "Unknown source")
-        url = feed.get("url")
-        if not url:
-            continue
-        parsed = feedparser.parse(url)
-        if parsed.bozo:
-            errors.append(f"{source}: feed warning/error: {getattr(parsed, 'bozo_exception', 'unknown error')}")
-        for entry in parsed.entries:
-            title = strip_html(entry.get("title", ""))
-            summary = strip_html(entry.get("summary", ""))
-            link = entry.get("link", "")
-            if not title or not link or link in seen_urls:
-                continue
-            seen_urls.add(link)
-            published = parse_date(entry)
-            if published and now - published > lookback:
-                continue
-            text = f"{title} {summary}"
-            score, level, terms = find_signal(text, config)
-            if score < min_score:
-                continue
-            matched_companies = [c for c in config.get("companies", []) if text_contains_company(text, c)]
-            if not matched_companies:
-                # Keep explicit tender/agency market news even if no watchlist company is present.
-                matched_companies = ["Bez konkrétní firmy"] if score >= 80 else []
-            for company in matched_companies:
-                hits.append(Hit(
-                    company=company,
-                    title=title,
-                    source=source,
-                    url=link,
-                    published=published,
-                    score=score,
-                    level=level,
-                    matched_terms=terms,
-                    recommendation=config.get("recommendations", {}).get(level, "Prověřit ručně."),
-                    summary=summary[:400],
-                ))
-    hits.sort(key=lambda h: (h.score, h.published or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
-    return hits[: int(config.get("max_items_in_email", 25))], errors
+    for company in config.get("companies", []):
+        if company.lower() in text:
+            companies.append(company)
+
+    return companies
 
 
-def fmt_date(dt: Optional[datetime]) -> str:
-    if not dt:
-        return "neuvedeno"
-    return dt.astimezone().strftime("%d.%m.%Y %H:%M")
+def source_name_from_url(url):
+    parsed = urlparse(url)
+    host = parsed.netloc.replace("www.", "")
+    return host or url
 
 
-def build_email(config: Dict[str, Any], hits: List[Hit], errors: List[str]) -> Tuple[str, str, str]:
+def fetch_feed(source):
+    feed_url = source.get("url")
+    source_name = source.get("name") or source_name_from_url(feed_url)
+
+    parsed = feedparser.parse(feed_url)
+
+    if parsed.bozo:
+        return [], f"{source_name}: feed warning/error: {parsed.bozo_exception}"
+
+    entries = []
+
+    for item in parsed.entries:
+        title = normalise_text(item.get("title", ""))
+        summary = normalise_text(item.get("summary", ""))
+        link = item.get("link", "")
+
+        published = (
+            item.get("published", "")
+            or item.get("updated", "")
+            or ""
+        )
+
+        entries.append({
+            "source": source_name,
+            "title": title,
+            "summary": summary,
+            "link": link,
+            "published": published,
+        })
+
+    return entries, None
+
+
+def collect_signals(config):
+    threshold = int(config.get("threshold", 30))
+    all_signals = []
+    notes = []
+
+    for source in config.get("sources", []):
+        entries, warning = fetch_feed(source)
+
+        if warning:
+            notes.append(warning)
+
+        for entry in entries:
+            score, matched_keywords = score_entry(
+                entry["title"],
+                entry["summary"],
+                config
+            )
+
+            companies = detect_companies(
+                entry["title"],
+                entry["summary"],
+                config
+            )
+
+            if score >= threshold:
+                signal = {
+                    **entry,
+                    "score": score,
+                    "keywords": matched_keywords,
+                    "companies": companies,
+                }
+                all_signals.append(signal)
+
+    all_signals.sort(key=lambda x: x["score"], reverse=True)
+    return all_signals, notes
+
+
+def recommendation(score):
+    if score >= 90:
+        return "Ověřit možnost účasti v tendru / kontaktovat relevantní decision makery."
+    if score >= 60:
+        return "Zařadit do aktivního BD sledování a prověřit kontext."
+    if score >= 30:
+        return "Sledovat další vývoj a případné navazující signály."
+    return "Nízká priorita."
+
+
+def build_text_report(signals, notes):
     today = datetime.now().strftime("%d.%m.%Y")
-    subject = f"{config.get('email', {}).get('subject_prefix', 'Tender radar')} – {today} – {len(hits)} signálů"
+    lines = [f"Tender radar – {today}", ""]
 
-    if hits:
-        text_lines = [f"Tender radar – {today}", "", f"Nalezeno signálů: {len(hits)}", ""]
-        html_rows = []
-        for i, h in enumerate(hits, 1):
-            terms = ", ".join(h.matched_terms[:5])
-            text_lines.extend([
-                f"{i}. {h.company} – skóre {h.score}",
-                f"Signál: {h.title}",
-                f"Zdroj: {h.source} | {fmt_date(h.published)}",
-                f"Shoda: {terms}",
-                f"Doporučení: {h.recommendation}",
-                f"Odkaz: {h.url}",
-                "",
-            ])
-            html_rows.append(f"""
-            <tr>
-              <td style='padding:10px;border-bottom:1px solid #ddd;'>{i}</td>
-              <td style='padding:10px;border-bottom:1px solid #ddd;'><strong>{html.escape(h.company)}</strong></td>
-              <td style='padding:10px;border-bottom:1px solid #ddd;'>{h.score}</td>
-              <td style='padding:10px;border-bottom:1px solid #ddd;'><a href='{html.escape(h.url)}'>{html.escape(h.title)}</a><br><small>{html.escape(h.source)} | {fmt_date(h.published)}</small></td>
-              <td style='padding:10px;border-bottom:1px solid #ddd;'>{html.escape(terms)}</td>
-              <td style='padding:10px;border-bottom:1px solid #ddd;'>{html.escape(h.recommendation)}</td>
-            </tr>
-            """)
-        html_body = f"""
-        <html><body style='font-family:Arial,sans-serif;'>
-        <h2>Tender radar – {today}</h2>
-        <p>Nalezeno signálů: <strong>{len(hits)}</strong></p>
-        <table style='border-collapse:collapse;width:100%;font-size:14px;'>
-          <thead>
-            <tr style='background:#f2f2f2;'>
-              <th style='text-align:left;padding:10px;'>#</th>
-              <th style='text-align:left;padding:10px;'>Firma</th>
-              <th style='text-align:left;padding:10px;'>Skóre</th>
-              <th style='text-align:left;padding:10px;'>Signál</th>
-              <th style='text-align:left;padding:10px;'>Shoda</th>
-              <th style='text-align:left;padding:10px;'>Doporučení</th>
-            </tr>
-          </thead>
-          <tbody>{''.join(html_rows)}</tbody>
-        </table>
+    if not signals:
+        lines.append("Dnes nebyly nalezeny žádné signály nad nastaveným prahem.")
+    else:
+        for i, signal in enumerate(signals, start=1):
+            companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
+            keywords = ", ".join(signal["keywords"]) if signal["keywords"] else "nezjištěno"
+
+            lines.append(f"{i}. {signal['title']}")
+            lines.append(f"Skóre: {signal['score']}")
+            lines.append(f"Firma: {companies}")
+            lines.append(f"Zdroj: {signal['source']}")
+            lines.append(f"Klíčová slova: {keywords}")
+            lines.append(f"Doporučení: {recommendation(signal['score'])}")
+            lines.append(f"Odkaz: {signal['link']}")
+            lines.append("")
+
+    if notes:
+        lines.append("Poznámky ke zdrojům:")
+        for note in notes:
+            lines.append(f"- {note}")
+
+    return "\n".join(lines)
+
+
+def build_html_report(signals, notes):
+    today = datetime.now().strftime("%d.%m.%Y")
+
+    cards_html = ""
+
+    if not signals:
+        cards_html = """
+        <div class="empty">
+            <h2>Dnes nebyly nalezeny žádné signály nad nastaveným prahem.</h2>
+            <p>Radar běží správně, jen aktuálně nenašel relevantní zmínky.</p>
+        </div>
         """
     else:
-        text_lines = [f"Tender radar – {today}", "", "Dnes nebyly nalezeny žádné signály nad nastaveným prahem."]
-        html_body = f"<html><body style='font-family:Arial,sans-serif;'><h2>Tender radar – {today}</h2><p>Dnes nebyly nalezeny žádné signály nad nastaveným prahem.</p>"
+        for signal in signals:
+            companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
+            keywords = ", ".join(signal["keywords"]) if signal["keywords"] else "nezjištěno"
 
-    if errors:
-        text_lines.extend(["", "Poznámky ke zdrojům:", *[f"- {e}" for e in errors[:10]]])
-        html_body += "<h3>Poznámky ke zdrojům</h3><ul>" + "".join(f"<li>{html.escape(e)}</li>" for e in errors[:10]) + "</ul>"
-    html_body += "</body></html>"
-    return subject, "\n".join(text_lines), html_body
+            score = signal["score"]
+            if score >= 90:
+                score_class = "high"
+            elif score >= 60:
+                score_class = "medium"
+            else:
+                score_class = "low"
+
+            cards_html += f"""
+            <article class="card">
+                <div class="card-top">
+                    <span class="score {score_class}">{score}</span>
+                    <span class="source">{html.escape(signal["source"])}</span>
+                </div>
+
+                <h2>{html.escape(signal["title"])}</h2>
+
+                <p class="summary">{html.escape(signal["summary"][:500])}</p>
+
+                <dl>
+                    <div>
+                        <dt>Firma</dt>
+                        <dd>{html.escape(companies)}</dd>
+                    </div>
+                    <div>
+                        <dt>Klíčová slova</dt>
+                        <dd>{html.escape(keywords)}</dd>
+                    </div>
+                    <div>
+                        <dt>Doporučení</dt>
+                        <dd>{html.escape(recommendation(score))}</dd>
+                    </div>
+                </dl>
+
+                <a class="button" href="{html.escape(signal["link"])}" target="_blank" rel="noopener noreferrer">
+                    Otevřít zdroj
+                </a>
+            </article>
+            """
+
+    notes_html = ""
+
+    if notes:
+        notes_html = "<section class='notes'><h2>Poznámky ke zdrojům</h2><ul>"
+        for note in notes:
+            notes_html += f"<li>{html.escape(note)}</li>"
+        notes_html += "</ul></section>"
+
+    return f"""<!doctype html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tender radar – {today}</title>
+    <style>
+        :root {{
+            --bg: #f5f6fa;
+            --card: #ffffff;
+            --text: #151922;
+            --muted: #687082;
+            --border: #e4e7ee;
+            --high: #b42318;
+            --medium: #b76e00;
+            --low: #2563eb;
+            --dark: #111827;
+        }}
+
+        * {{
+            box-sizing: border-box;
+        }}
+
+        body {{
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }}
+
+        header {{
+            background: var(--dark);
+            color: white;
+            padding: 32px 24px;
+        }}
+
+        header h1 {{
+            margin: 0 0 8px 0;
+            font-size: 32px;
+        }}
+
+        header p {{
+            margin: 0;
+            color: #d1d5db;
+        }}
+
+        main {{
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px;
+        }}
+
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }}
+
+        .card, .empty, .notes {{
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+        }}
+
+        .card-top {{
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 14px;
+        }}
+
+        .score {{
+            display: inline-flex;
+            width: 48px;
+            height: 48px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            color: white;
+            font-weight: 700;
+            font-size: 18px;
+        }}
+
+        .score.high {{
+            background: var(--high);
+        }}
+
+        .score.medium {{
+            background: var(--medium);
+        }}
+
+        .score.low {{
+            background: var(--low);
+        }}
+
+        .source {{
+            color: var(--muted);
+            font-size: 14px;
+            text-align: right;
+        }}
+
+        h2 {{
+            margin: 0 0 12px 0;
+            line-height: 1.25;
+            font-size: 21px;
+        }}
+
+        .summary {{
+            color: var(--muted);
+            line-height: 1.5;
+            margin-bottom: 18px;
+        }}
+
+        dl {{
+            margin: 0 0 18px 0;
+        }}
+
+        dl div {{
+            border-top: 1px solid var(--border);
+            padding: 10px 0;
+        }}
+
+        dt {{
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: 4px;
+        }}
+
+        dd {{
+            margin: 0;
+            line-height: 1.45;
+        }}
+
+        .button {{
+            display: inline-block;
+            background: var(--dark);
+            color: white;
+            text-decoration: none;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-weight: 700;
+        }}
+
+        .notes {{
+            margin-top: 24px;
+        }}
+
+        .notes ul {{
+            margin-bottom: 0;
+        }}
+
+        footer {{
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px 32px 24px;
+            color: var(--muted);
+            font-size: 13px;
+        }}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Tender radar</h1>
+        <p>Automatický monitoring signálů k PR, marketingovým a komunikačním tendrům · aktualizováno {today}</p>
+    </header>
+
+    <main>
+        <section class="grid">
+            {cards_html}
+        </section>
+
+        {notes_html}
+    </main>
+
+    <footer>
+        Generováno automaticky přes GitHub Actions.
+    </footer>
+</body>
+</html>
+"""
 
 
-def send_email(config: Dict[str, Any], subject: str, text_body: str, html_body: str) -> None:
-    smtp_host = os.environ["SMTP_HOST"]
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASSWORD"]
-    mail_to = os.environ["MAIL_TO"]
-    mail_from = os.environ.get("MAIL_FROM", smtp_user)
-    from_name = config.get("email", {}).get("from_name", "Tender radar")
+def save_html(html_body):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{from_name} <{mail_from}>"
-    msg["To"] = mail_to
-    msg.attach(MIMEText(text_body, "plain", "utf-8"))
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
 
-    context = ssl.create_default_context()
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.starttls(context=context)
-        server.login(smtp_user, smtp_password)
-        server.sendmail(mail_from, [x.strip() for x in mail_to.split(",")], msg.as_string())
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_body)
+
+    return output_path
 
 
-def main() -> None:
+def main():
     config = load_config()
-    hits, errors = classify_hits(config)
-    subject, text_body, html_body = build_email(config, hits, errors)
+    signals, notes = collect_signals(config)
+
+    text_body = build_text_report(signals, notes)
+    html_body = build_html_report(signals, notes)
+
+    output_path = save_html(html_body)
+
     print(text_body)
-    if os.environ.get("DRY_RUN", "false").lower() in ("1", "true", "yes"):
-        print("\nDRY_RUN=true, e-mail not sent.")
-        return
-    send_email(config, subject, text_body, html_body)
+    print("")
+    print(f"HTML report saved to: {output_path}")
 
 
 if __name__ == "__main__":
