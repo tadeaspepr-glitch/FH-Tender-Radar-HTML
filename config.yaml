@@ -1,124 +1,143 @@
 # Tender radar MVP configuration
 # Edit this file first: companies, feeds, keywords and scoring are intentionally transparent.
 
-lookback_hours: 30
-min_score_to_report: 25
-max_items_in_email: 25
+threshold: 15
 
-email:
-  subject_prefix: "Tender radar"
-  from_name: "FH Tender radar"
+scoring:
+  high: 100
+  medium: 50
+  low: 20
+  weak: 10
 
 companies:
   - Lenovo
   - HP
+  - Hewlett Packard
   - Dell
   - Samsung
   - vivo
   - Xiaomi
   - LG
   - Asus
+  - Acer
   - Microsoft
   - Cisco
   - Intel
   - IBM
   - Oracle
   - Logitech
-  - T-Mobile
-  - Vodafone
-  - O2
-  - Alza
-  - Datart
-  - Mall
+  - Huawei
+  - Honor
+  - Motorola
   - Apple
   - Google
   - Meta
-  - Amazon
-  - SAP
-  - Siemens
-  - Epson
-  - Canon
-  - Nikon
-  - Panasonic
-  - Sony
-  - Philips
-  - Honor
-  - Huawei
-  - Motorola
+  - TikTok
+  - Netflix
+  - Vodafone
+  - T-Mobile
+  - O2
+  - CETIN
+  - Alza
+  - Datart
+  - Mall
+  - CZC
+  - Rohlik
+  - Wolt
+  - Bolt
 
-feeds:
-  # Czech media / marketing sources. Some publishers may change RSS URLs; the script skips failing feeds.
-  - name: "Mediář"
-    url: "https://www.mediar.cz/feed/"
-  - name: "MAM"
-    url: "https://www.mam.cz/feed/"
-  - name: "MediaGuru"
-    url: "https://www.mediaguru.cz/rss/"
-  - name: "Marketing Journal"
-    url: "https://www.m-journal.cz/rss.php"
-  - name: "CzechCrunch"
-    url: "https://cc.cz/feed/"
-  - name: "Lupa"
-    url: "https://www.lupa.cz/rss/clanky/"
-  - name: "České noviny - ekonomika"
-    url: "https://www.ceskenoviny.cz/sluzby/rss/ekonomika.php"
-  - name: "ČTK Protext"
-    url: "https://www.protext.cz/rss"
-
-signals:
+keywords:
   high:
-    score: 100
-    terms:
-      - "tendr"
-      - "výběrové řízení"
-      - "vyberove rizeni"
-      - "hledá PR agenturu"
-      - "hleda PR agenturu"
-      - "hledá komunikační agenturu"
-      - "hleda komunikacni agenturu"
-      - "PR agenturu"
-      - "komunikační agenturu"
-      - "komunikacni agenturu"
-      - "public relations agency"
-      - "RFI"
-      - "RFP"
-  medium:
-    score: 60
-    terms:
-      - "vybrala agenturu"
-      - "vybral agenturu"
-      - "změna agentury"
-      - "zmena agentury"
-      - "nová agentura"
-      - "nova agentura"
-      - "marketingová agentura"
-      - "marketingova agentura"
-      - "mediální agentura"
-      - "medialni agentura"
-      - "kreativní agentura"
-      - "kreativni agentura"
-      - "agenturní tendr"
-      - "agenturni tendr"
-  low:
-    score: 30
-    terms:
-      - "nový marketingový ředitel"
-      - "nova marketingova reditelka"
-      - "nový komunikační ředitel"
-      - "nová komunikační ředitelka"
-      - "communications manager"
-      - "communications director"
-      - "marketing director"
-      - "country manager"
-      - "general manager"
-      - "rebranding"
-      - "nová strategie"
-      - "nova strategie"
-      - "expanze"
-      - "vstup na český trh"
-      - "vstup na cesky trh"
+    - vyhlašuje tendr
+    - vypisuje tendr
+    - vypsala tendr
+    - vypsal tendr
+    - výběrové řízení na PR agenturu
+    - tendr na PR agenturu
+    - hledá PR agenturu
+    - hledá komunikační agenturu
+    - public relations agenturu
+    - RFI
+    - RFP
 
-recommendations:
-  high: "Ověřit možnost účasti v tendru a rychle identifikovat decision makera/procurement kontakt."
-  medium: "Zkontrolovat kontext změny a zvážit warm intro nebo nenápadný BD touchpoint."
-  low: "Zařadit firmu do watchlistu a sledovat další signály v horizontu 3–6 měsíců."
+  medium:
+    - tendr
+    - výběrové řízení
+    - výběrového řízení
+    - agenturní tendr
+    - PR agentura
+    - komunikační agentura
+    - kreativní agentura
+    - mediální agentura
+    - digitální agentura
+    - marketingová agentura
+    - vybrala agenturu
+    - vybral agenturu
+    - mění agenturu
+    - nová agentura
+    - férový tendr
+
+  low:
+    - nový marketingový ředitel
+    - nová marketingová ředitelka
+    - nový komunikační ředitel
+    - nová komunikační ředitelka
+    - communications manager
+    - marketing manager
+    - marketing director
+    - communications director
+    - country manager
+    - generální ředitel
+    - personální změna
+    - posiluje marketing
+    - posiluje komunikaci
+
+  weak:
+    - rebranding
+    - nová strategie
+    - expanze
+    - vstup na český trh
+    - vstupuje na český trh
+    - launch
+    - uvedla na trh
+    - kampaň
+    - komunikace značky
+    - public affairs
+    - corporate affairs
+
+sources:
+  - name: Mediář
+    url: https://www.mediar.cz/feed/
+
+  - name: MAM
+    url: https://www.mam.cz/feed/
+
+  - name: MediaGuru
+    url: https://www.mediaguru.cz/rss/
+
+  - name: Marketing Journal
+    url: https://www.m-journal.cz/rss/
+
+  - name: CzechCrunch
+    url: https://cc.cz/feed/
+
+  - name: Lupa
+    url: https://www.lupa.cz/rss/clanky/
+
+  - name: Google News – PR agentura tendr
+    url: https://news.google.com/rss/search?q=%22PR%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – komunikační agentura tendr
+    url: https://news.google.com/rss/search?q=%22komunikační%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – marketingová agentura tendr
+    url: https://news.google.com/rss/search?q=%22marketingová%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – kreativní agentura tendr
+    url: https://news.google.com/rss/search?q=%22kreativní%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – public relations tendr
+    url: https://news.google.com/rss/search?q=%22public%20relations%22%20tendr%20OR%20%22PR%20agenturu%22&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – nové vedení marketing
+    url: https://news.google.com/rss/search?q=%22marketingový%20ředitel%22%20OR%20%22marketingová%20ředitelka%22%20OR%20%22communications%20manager%22&hl=cs&gl=CZ&ceid=CZ:cs
