@@ -1,0 +1,124 @@
+# Tender radar MVP configuration
+# Edit this file first: companies, feeds, keywords and scoring are intentionally transparent.
+
+lookback_hours: 30
+min_score_to_report: 25
+max_items_in_email: 25
+
+email:
+  subject_prefix: "Tender radar"
+  from_name: "FH Tender radar"
+
+companies:
+  - Lenovo
+  - HP
+  - Dell
+  - Samsung
+  - vivo
+  - Xiaomi
+  - LG
+  - Asus
+  - Microsoft
+  - Cisco
+  - Intel
+  - IBM
+  - Oracle
+  - Logitech
+  - T-Mobile
+  - Vodafone
+  - O2
+  - Alza
+  - Datart
+  - Mall
+  - Apple
+  - Google
+  - Meta
+  - Amazon
+  - SAP
+  - Siemens
+  - Epson
+  - Canon
+  - Nikon
+  - Panasonic
+  - Sony
+  - Philips
+  - Honor
+  - Huawei
+  - Motorola
+
+feeds:
+  # Czech media / marketing sources. Some publishers may change RSS URLs; the script skips failing feeds.
+  - name: "Mediář"
+    url: "https://www.mediar.cz/feed/"
+  - name: "MAM"
+    url: "https://www.mam.cz/feed/"
+  - name: "MediaGuru"
+    url: "https://www.mediaguru.cz/rss/"
+  - name: "Marketing Journal"
+    url: "https://www.m-journal.cz/rss.php"
+  - name: "CzechCrunch"
+    url: "https://cc.cz/feed/"
+  - name: "Lupa"
+    url: "https://www.lupa.cz/rss/clanky/"
+  - name: "České noviny - ekonomika"
+    url: "https://www.ceskenoviny.cz/sluzby/rss/ekonomika.php"
+  - name: "ČTK Protext"
+    url: "https://www.protext.cz/rss"
+
+signals:
+  high:
+    score: 100
+    terms:
+      - "tendr"
+      - "výběrové řízení"
+      - "vyberove rizeni"
+      - "hledá PR agenturu"
+      - "hleda PR agenturu"
+      - "hledá komunikační agenturu"
+      - "hleda komunikacni agenturu"
+      - "PR agenturu"
+      - "komunikační agenturu"
+      - "komunikacni agenturu"
+      - "public relations agency"
+      - "RFI"
+      - "RFP"
+  medium:
+    score: 60
+    terms:
+      - "vybrala agenturu"
+      - "vybral agenturu"
+      - "změna agentury"
+      - "zmena agentury"
+      - "nová agentura"
+      - "nova agentura"
+      - "marketingová agentura"
+      - "marketingova agentura"
+      - "mediální agentura"
+      - "medialni agentura"
+      - "kreativní agentura"
+      - "kreativni agentura"
+      - "agenturní tendr"
+      - "agenturni tendr"
+  low:
+    score: 30
+    terms:
+      - "nový marketingový ředitel"
+      - "nova marketingova reditelka"
+      - "nový komunikační ředitel"
+      - "nová komunikační ředitelka"
+      - "communications manager"
+      - "communications director"
+      - "marketing director"
+      - "country manager"
+      - "general manager"
+      - "rebranding"
+      - "nová strategie"
+      - "nova strategie"
+      - "expanze"
+      - "vstup na český trh"
+      - "vstup na cesky trh"
+
+recommendations:
+  high: "Ověřit možnost účasti v tendru a rychle identifikovat decision makera/procurement kontakt."
+  medium: "Zkontrolovat kontext změny a zvážit warm intro nebo nenápadný BD touchpoint."
+  low: "Zařadit firmu do watchlistu a sledovat další signály v horizontu 3–6 měsíců."
