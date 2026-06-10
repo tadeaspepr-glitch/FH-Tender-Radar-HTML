@@ -3,8 +3,7 @@ name: Tender radar
 on:
   workflow_dispatch:
   schedule:
-    # GitHub Actions cron is UTC. This runs at 08:15 Prague winter time / 09:15 Prague summer time.
-    - cron: "15 7 * * 1-5"
+    - cron: "30 6 * * 1-5"
 
 permissions:
   contents: read
@@ -18,7 +17,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,10 +29,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run tender radar
+      - name: Run radar
         run: python radar.py
 
-      - name: Upload Pages artifact
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
