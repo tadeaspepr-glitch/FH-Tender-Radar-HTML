@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 CONFIG_FILE = "config.yaml"
 OUTPUT_DIR = "public"
 OUTPUT_FILE = "index.html"
-MAX_AGE_DAYS = 45
+MAX_AGE_DAYS = 90
 
 ANCHOR_CATEGORIES = {
     "direct_tender",
@@ -23,9 +23,7 @@ ANCHOR_CATEGORIES = {
     "business_signal",
 }
 
-CONTEXT_CATEGORIES = {
-    "context",
-}
+CONTEXT_CATEGORIES = {"context"}
 
 
 def load_config():
@@ -36,12 +34,9 @@ def load_config():
 def clean_html_text(value):
     if not value:
         return ""
-
     value = html.unescape(str(value))
     soup = BeautifulSoup(value, "html.parser")
-    text = soup.get_text(" ", strip=True)
-
-    return " ".join(text.split())
+    return " ".join(soup.get_text(" ", strip=True).split())
 
 
 def extract_google_news_title_and_source(raw_title, raw_summary, default_source):
@@ -52,7 +47,6 @@ def extract_google_news_title_and_source(raw_title, raw_summary, default_source)
     if "<a " in summary.lower():
         soup = BeautifulSoup(summary, "html.parser")
         first_link = soup.find("a")
-
         if first_link:
             linked_title = first_link.get_text(" ", strip=True)
             if linked_title:
@@ -75,16 +69,13 @@ def extract_google_news_title_and_source(raw_title, raw_summary, default_source)
 
 def source_name_from_url(url):
     parsed = urlparse(url)
-    host = parsed.netloc.replace("www.", "")
-    return host or url
+    return parsed.netloc.replace("www.", "") or url
 
 
 def get_entry_datetime(item):
     parsed_date = item.get("published_parsed") or item.get("updated_parsed")
-
     if not parsed_date:
         return None
-
     try:
         return datetime.fromtimestamp(time.mktime(parsed_date))
     except Exception:
@@ -93,50 +84,41 @@ def get_entry_datetime(item):
 
 def get_days_old(item):
     published_dt = get_entry_datetime(item)
-
     if not published_dt:
         return None
-
     return max(0, (datetime.now() - published_dt).days)
 
 
 def is_recent(item):
     published_dt = get_entry_datetime(item)
-
     if not published_dt:
         return True
-
     return published_dt >= datetime.now() - timedelta(days=MAX_AGE_DAYS)
 
 
 def freshness_bonus(days_old):
     if days_old is None:
         return 0, None
-
     if days_old <= 3:
         return 20, "čerstvý článek do 3 dnů (+20)"
     if days_old <= 7:
         return 12, "čerstvý článek do 7 dnů (+12)"
     if days_old <= 30:
         return 5, "aktuální článek do 30 dnů (+5)"
-
     return 0, None
 
 
 def contains_keyword(text, keyword):
     keyword_lower = keyword.lower().strip()
-
     if len(keyword_lower) <= 3:
-        pattern = r"(?<!\w)" + re.escape(keyword_lower) + r"(?!\w)"
+        pattern = r"(?<!\\w)" + re.escape(keyword_lower) + r"(?!\\w)"
         return re.search(pattern, text) is not None
-
     return keyword_lower in text
 
 
 def score_entry(title, summary, config, days_old=None):
     title_lower = title.lower()
     summary_lower = summary.lower()
-    full_text = f"{title_lower} {summary_lower}"
 
     scoring = config.get("scoring", {})
     keyword_config = config.get("keywords", {})
@@ -144,15 +126,14 @@ def score_entry(title, summary, config, days_old=None):
     score = 0
     reasons = []
     anchor_found = False
+    context_matches = []
 
     for category, keywords in keyword_config.items():
         base_points = int(scoring.get(category, 0))
 
         for keyword in keywords:
-            keyword_lower = keyword.lower().strip()
-
-            in_title = contains_keyword(title_lower, keyword_lower)
-            in_summary = contains_keyword(summary_lower, keyword_lower)
+            in_title = contains_keyword(title_lower, keyword)
+            in_summary = contains_keyword(summary_lower, keyword)
 
             if not in_title and not in_summary:
                 continue
@@ -160,41 +141,50 @@ def score_entry(title, summary, config, days_old=None):
             is_anchor = category in ANCHOR_CATEGORIES
             is_context = category in CONTEXT_CATEGORIES
 
-            if is_anchor:
-                anchor_found = True
-
-            # Context sám článek nezařadí. Přidá se až později, pokud existuje anchor.
-            if is_context and not anchor_found:
-                continue
-
+            placement = "titulek" if in_title else "perex"
             points = base_points
 
             if in_title:
                 points = int(round(points * 1.5))
-                placement = "titulek"
-            else:
-                placement = "perex"
-            
-            score += points
+
+            if is_context:
+                context_matches.append({
+                    "label": keyword,
+                    "points": points,
+                    "category": category,
+                    "placement": placement,
+                })
+                continue
+
+            if is_anchor:
+                anchor_found = True
+                score += points
+                reasons.append({
+                    "label": keyword,
+                    "points": points,
+                    "category": category,
+                    "placement": placement,
+                    "is_anchor": True,
+                })
+
+    if anchor_found:
+        for item in context_matches:
+            score += item["points"]
             reasons.append({
-                "label": keyword,
-                "points": points,
-                "category": category,
-                "placement": placement,
-                "is_anchor": is_anchor,
+                **item,
+                "is_anchor": False,
             })
 
-    freshness_points, freshness_reason = freshness_bonus(days_old)
-
-    if anchor_found and freshness_points:
-        score += freshness_points
-        reasons.append({
-            "label": freshness_reason,
-            "points": freshness_points,
-            "category": "freshness",
-            "placement": "datum",
-            "is_anchor": False,
-        })
+        freshness_points, freshness_reason = freshness_bonus(days_old)
+        if freshness_points:
+            score += freshness_points
+            reasons.append({
+                "label": freshness_reason,
+                "points": freshness_points,
+                "category": "freshness",
+                "placement": "datum",
+                "is_anchor": False,
+            })
 
     return score, reasons, anchor_found
 
@@ -222,12 +212,10 @@ def detect_companies(title, summary, config, source):
 
         if company_lower in ignored_company_names:
             continue
-
         if company_lower == source_lower:
             continue
 
-        pattern = r"(?<!\w)" + re.escape(company_lower) + r"(?!\w)"
-
+        pattern = r"(?<!\\w)" + re.escape(company_lower) + r"(?!\\w)"
         if re.search(pattern, text):
             companies.append(company)
 
@@ -260,20 +248,13 @@ def fetch_feed(source):
         )
 
         summary = clean_html_text(raw_summary)
-        link = item.get("link", "")
-
-        published = (
-            item.get("published", "")
-            or item.get("updated", "")
-            or ""
-        )
 
         entries.append({
             "source": detected_source,
             "title": title,
             "summary": summary,
-            "link": link,
-            "published": published,
+            "link": item.get("link", ""),
+            "published": item.get("published", "") or item.get("updated", "") or "",
             "days_old": get_days_old(item),
         })
 
@@ -281,7 +262,7 @@ def fetch_feed(source):
 
 
 def collect_signals(config):
-    threshold = int(config.get("threshold", 35))
+    threshold = int(config.get("threshold", 25))
     all_signals = []
     notes = []
 
@@ -306,8 +287,6 @@ def collect_signals(config):
                 entry.get("days_old"),
             )
 
-            # Bez silnějšího signálu už článek neprojde.
-            # Firma nebo slovo "kampaň" nestačí.
             if not anchor_found:
                 continue
 
@@ -322,13 +301,12 @@ def collect_signals(config):
                 })
 
             if score >= threshold:
-                signal = {
+                all_signals.append({
                     **entry,
                     "score": score,
                     "reasons": reasons,
                     "companies": companies,
-                }
-                all_signals.append(signal)
+                })
 
     all_signals = deduplicate_signals(all_signals)
     all_signals.sort(key=lambda x: x["score"], reverse=True)
@@ -341,12 +319,7 @@ def deduplicate_signals(signals):
     unique = []
 
     for signal in signals:
-        normalized_title = re.sub(
-            r"\W+",
-            " ",
-            signal.get("title", "").lower()
-        ).strip()
-
+        normalized_title = re.sub(r"\\W+", " ", signal.get("title", "").lower()).strip()
         key = normalized_title[:120]
 
         if key in seen:
@@ -376,13 +349,11 @@ def build_company_summary(signals):
             if not company_scores[company]["top_signal"]:
                 company_scores[company]["top_signal"] = signal.get("title", "")
 
-    sorted_companies = sorted(
+    return sorted(
         company_scores.items(),
         key=lambda item: item[1]["score"],
         reverse=True
-    )
-
-    return sorted_companies[:8]
+    )[:8]
 
 
 def recommendation(score):
@@ -440,7 +411,7 @@ def build_text_report(signals, notes):
         for note in notes:
             lines.append(f"- {note}")
 
-    return "\n".join(lines)
+    return "\\n".join(lines)
 
 
 def build_html_report(signals, notes):
@@ -486,7 +457,17 @@ def build_html_report(signals, notes):
     else:
         for signal in signals:
             companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
-            age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
+            days_old = signal.get("days_old")
+            age = f"{days_old} dní" if days_old is not None else "nezjištěno"
+
+            if days_old is None:
+                age_bucket = "unknown"
+            elif days_old <= 7:
+                age_bucket = "week"
+            elif days_old <= 30:
+                age_bucket = "month"
+            else:
+                age_bucket = "older"
 
             score = signal["score"]
 
@@ -514,7 +495,7 @@ def build_html_report(signals, notes):
                 reasons_html = "<p class='muted'>Důvod nebyl zjištěn.</p>"
 
             cards_html += f"""
-            <article class="card">
+            <article class="card" data-age="{age_bucket}">
                 <div class="card-top">
                     <span class="score {score_class}">{score}</span>
                     <div class="meta">
@@ -608,6 +589,29 @@ def build_html_report(signals, notes):
             padding: 24px;
         }}
 
+        .filters {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 0 0 22px 0;
+        }}
+
+        .filter-button {{
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text);
+            border-radius: 999px;
+            padding: 9px 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }}
+
+        .filter-button.active {{
+            background: var(--dark);
+            color: white;
+            border-color: var(--dark);
+        }}
+
         .section-heading {{
             margin-bottom: 16px;
         }}
@@ -678,6 +682,10 @@ def build_html_report(signals, notes):
             box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
         }}
 
+        .card.hidden {{
+            display: none;
+        }}
+
         .card-top {{
             display: flex;
             justify-content: space-between;
@@ -699,17 +707,9 @@ def build_html_report(signals, notes):
             flex: 0 0 auto;
         }}
 
-        .score.high {{
-            background: var(--high);
-        }}
-
-        .score.medium {{
-            background: var(--medium);
-        }}
-
-        .score.low {{
-            background: var(--low);
-        }}
+        .score.high {{ background: var(--high); }}
+        .score.medium {{ background: var(--medium); }}
+        .score.low {{ background: var(--low); }}
 
         .meta {{
             display: flex;
@@ -805,10 +805,6 @@ def build_html_report(signals, notes):
             margin-top: 24px;
         }}
 
-        .notes ul {{
-            margin-bottom: 0;
-        }}
-
         footer {{
             max-width: 1180px;
             margin: 0 auto;
@@ -829,10 +825,17 @@ def build_html_report(signals, notes):
 
         <section class="section-heading">
             <h2>Nalezené signály</h2>
-            <p>Článek se zařadí pouze tehdy, pokud obsahuje skutečný tendrový, agenturní, procurement, personální nebo byznysový signál. Samotné slovo „kampaň“ už nestačí.</p>
+            <p>Článek se zařadí pouze tehdy, pokud obsahuje skutečný tendrový, agenturní, procurement, personální nebo byznysový signál.</p>
         </section>
 
-        <section class="grid">
+        <div class="filters">
+            <button class="filter-button active" data-filter="all">Vše</button>
+            <button class="filter-button" data-filter="week">Posledních 7 dní</button>
+            <button class="filter-button" data-filter="month">Posledních 30 dní</button>
+            <button class="filter-button" data-filter="older">31–90 dní</button>
+        </div>
+
+        <section class="grid" id="signals-grid">
             {cards_html}
         </section>
 
@@ -842,6 +845,38 @@ def build_html_report(signals, notes):
     <footer>
         Generováno automaticky přes GitHub Actions. Scoring zohledňuje sílu signálu, umístění v titulku/perexu, sledované firmy a aktuálnost článku.
     </footer>
+
+    <script>
+        const buttons = document.querySelectorAll('.filter-button');
+        const cards = document.querySelectorAll('.card');
+
+        buttons.forEach(button => {{
+            button.addEventListener('click', () => {{
+                const filter = button.dataset.filter;
+
+                buttons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+
+                cards.forEach(card => {{
+                    const age = card.dataset.age;
+
+                    if (filter === 'all') {{
+                        card.classList.remove('hidden');
+                    }} else if (filter === 'month') {{
+                        if (age === 'week' || age === 'month') {{
+                            card.classList.remove('hidden');
+                        }} else {{
+                            card.classList.add('hidden');
+                        }}
+                    }} else if (age === filter) {{
+                        card.classList.remove('hidden');
+                    }} else {{
+                        card.classList.add('hidden');
+                    }}
+                }});
+            }});
+        }});
+    </script>
 </body>
 </html>
 """
@@ -849,7 +884,6 @@ def build_html_report(signals, notes):
 
 def save_html(html_body):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
     output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
 
     with open(output_path, "w", encoding="utf-8") as f:
