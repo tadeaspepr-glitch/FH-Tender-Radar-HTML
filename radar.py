@@ -34,7 +34,6 @@ def clean_html_text(value):
 def extract_google_news_title_and_source(raw_title, raw_summary, default_source):
     title = clean_html_text(raw_title)
     summary = str(raw_summary or "")
-
     source = default_source
 
     if "<a " in summary.lower():
@@ -52,7 +51,6 @@ def extract_google_news_title_and_source(raw_title, raw_summary, default_source)
             if extracted_source:
                 source = clean_html_text(extracted_source)
 
-    # Google News sometimes formats title as "Article title - Source"
     if " - " in title and default_source.lower().startswith("google news"):
         possible_title, possible_source = title.rsplit(" - ", 1)
         if len(possible_source) < 50:
@@ -69,12 +67,7 @@ def source_name_from_url(url):
 
 
 def get_entry_datetime(item):
-    parsed_date = None
-
-    if item.get("published_parsed"):
-        parsed_date = item.get("published_parsed")
-    elif item.get("updated_parsed"):
-        parsed_date = item.get("updated_parsed")
+    parsed_date = item.get("published_parsed") or item.get("updated_parsed")
 
     if not parsed_date:
         return None
@@ -83,15 +76,6 @@ def get_entry_datetime(item):
         return datetime.fromtimestamp(time.mktime(parsed_date))
     except Exception:
         return None
-
-
-def is_recent(item):
-    published_dt = get_entry_datetime(item)
-
-    if not published_dt:
-        return True
-
-    return published_dt >= datetime.now() - timedelta(days=MAX_AGE_DAYS)
 
 
 def get_days_old(item):
@@ -103,24 +87,33 @@ def get_days_old(item):
     return max(0, (datetime.now() - published_dt).days)
 
 
+def is_recent(item):
+    published_dt = get_entry_datetime(item)
+
+    if not published_dt:
+        return True
+
+    return published_dt >= datetime.now() - timedelta(days=MAX_AGE_DAYS)
+
+
 def freshness_bonus(days_old):
     if days_old is None:
-        return 0
+        return 0, None
 
     if days_old <= 3:
-        return 30
+        return 30, f"čerstvý článek do 3 dnů (+30)"
     if days_old <= 7:
-        return 20
+        return 20, f"čerstvý článek do 7 dnů (+20)"
     if days_old <= 30:
-        return 10
+        return 10, f"aktuální článek do 30 dnů (+10)"
 
-    return 0
+    return 0, None
 
 
 def score_entry(title, summary, config, days_old=None):
     text = f"{title} {summary}".lower()
     score = 0
-    matched_keywords = []
+    keyword_reasons = []
 
     scoring = config.get("scoring", {})
 
@@ -129,11 +122,24 @@ def score_entry(title, summary, config, days_old=None):
         for keyword in keywords:
             if keyword.lower() in text:
                 score += int(points)
-                matched_keywords.append(keyword)
+                keyword_reasons.append({
+                    "label": keyword,
+                    "points": int(points),
+                    "type": level,
+                })
 
-    score += freshness_bonus(days_old)
+    freshness_points, freshness_reason = freshness_bonus(days_old)
+    score += freshness_points
 
-    return score, matched_keywords
+    reasons = []
+
+    for reason in keyword_reasons:
+        reasons.append(f"{reason['label']} (+{reason['points']})")
+
+    if freshness_reason:
+        reasons.append(freshness_reason)
+
+    return score, keyword_reasons, freshness_points, reasons
 
 
 def detect_companies(title, summary, config, source):
@@ -229,13 +235,6 @@ def collect_signals(config):
             notes.append(warning)
 
         for entry in entries:
-            score, matched_keywords = score_entry(
-                entry["title"],
-                entry["summary"],
-                config,
-                entry.get("days_old"),
-            )
-
             companies = detect_companies(
                 entry["title"],
                 entry["summary"],
@@ -243,11 +242,30 @@ def collect_signals(config):
                 entry["source"],
             )
 
+            score, keyword_reasons, freshness, reasons = score_entry(
+                entry["title"],
+                entry["summary"],
+                config,
+                entry.get("days_old"),
+            )
+
+            # Záznam neprojde jen díky stáří článku.
+            # Musí mít buď keyword match, nebo zmínku sledované firmy.
+            if not keyword_reasons and not companies:
+                continue
+
+            # Pokud má jen firmu, ale žádný keyword, držíme ho níže.
+            if companies and not keyword_reasons:
+                score += 5
+                reasons.append("zmínka sledované firmy (+5)")
+
             if score >= threshold:
                 signal = {
                     **entry,
                     "score": score,
-                    "keywords": matched_keywords,
+                    "keyword_reasons": keyword_reasons,
+                    "freshness": freshness,
+                    "reasons": reasons,
                     "companies": companies,
                 }
                 all_signals.append(signal)
@@ -280,6 +298,33 @@ def deduplicate_signals(signals):
     return unique
 
 
+def build_company_summary(signals):
+    company_scores = {}
+
+    for signal in signals:
+        for company in signal.get("companies", []):
+            if company not in company_scores:
+                company_scores[company] = {
+                    "score": 0,
+                    "count": 0,
+                    "top_signal": "",
+                }
+
+            company_scores[company]["score"] += signal.get("score", 0)
+            company_scores[company]["count"] += 1
+
+            if not company_scores[company]["top_signal"]:
+                company_scores[company]["top_signal"] = signal.get("title", "")
+
+    sorted_companies = sorted(
+        company_scores.items(),
+        key=lambda item: item[1]["score"],
+        reverse=True
+    )
+
+    return sorted_companies[:8]
+
+
 def recommendation(score):
     if score >= 90:
         return "Ověřit možnost účasti v tendru / kontaktovat relevantní decision makery."
@@ -297,9 +342,17 @@ def build_text_report(signals, notes):
     if not signals:
         lines.append("Dnes nebyly nalezeny žádné signály nad nastaveným prahem.")
     else:
+        top_companies = build_company_summary(signals)
+
+        if top_companies:
+            lines.append("Top firmy podle skóre:")
+            for company, data in top_companies:
+                lines.append(f"- {company}: {data['score']} bodů / {data['count']} signálů")
+            lines.append("")
+
         for i, signal in enumerate(signals, start=1):
             companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
-            keywords = ", ".join(signal["keywords"]) if signal["keywords"] else "nezjištěno"
+            reasons = ", ".join(signal["reasons"]) if signal["reasons"] else "nezjištěno"
             age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
 
             lines.append(f"{i}. {signal['title']}")
@@ -307,7 +360,7 @@ def build_text_report(signals, notes):
             lines.append(f"Firma: {companies}")
             lines.append(f"Zdroj: {signal['source']}")
             lines.append(f"Stáří: {age}")
-            lines.append(f"Klíčová slova: {keywords}")
+            lines.append(f"Důvody zařazení: {reasons}")
             lines.append(f"Doporučení: {recommendation(signal['score'])}")
             lines.append(f"Odkaz: {signal['link']}")
             lines.append("")
@@ -322,6 +375,34 @@ def build_text_report(signals, notes):
 
 def build_html_report(signals, notes):
     today = datetime.now().strftime("%d.%m.%Y")
+    top_companies = build_company_summary(signals)
+
+    summary_html = ""
+
+    if top_companies:
+        company_cards = ""
+
+        for company, data in top_companies:
+            company_cards += f"""
+            <div class="company-card">
+                <div class="company-name">{html.escape(company)}</div>
+                <div class="company-score">{data["score"]}</div>
+                <div class="company-meta">{data["count"]} signálů</div>
+                <div class="company-signal">{html.escape(data["top_signal"][:120])}</div>
+            </div>
+            """
+
+        summary_html = f"""
+        <section class="summary-panel">
+            <div class="section-heading">
+                <h2>Top firmy podle skóre</h2>
+                <p>Součet bodů ze všech nalezených signálů za posledních {MAX_AGE_DAYS} dní.</p>
+            </div>
+            <div class="company-grid">
+                {company_cards}
+            </div>
+        </section>
+        """
 
     cards_html = ""
 
@@ -335,7 +416,6 @@ def build_html_report(signals, notes):
     else:
         for signal in signals:
             companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
-            keywords = ", ".join(signal["keywords"]) if signal["keywords"] else "nezjištěno"
             age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
 
             score = signal["score"]
@@ -346,6 +426,16 @@ def build_html_report(signals, notes):
                 score_class = "medium"
             else:
                 score_class = "low"
+
+            reasons_html = ""
+
+            if signal.get("reasons"):
+                reasons_html = "<ul class='reasons'>"
+                for reason in signal["reasons"]:
+                    reasons_html += f"<li>{html.escape(reason)}</li>"
+                reasons_html += "</ul>"
+            else:
+                reasons_html = "<p class='muted'>Důvod nebyl zjištěn.</p>"
 
             cards_html += f"""
             <article class="card">
@@ -367,8 +457,8 @@ def build_html_report(signals, notes):
                         <dd>{html.escape(companies)}</dd>
                     </div>
                     <div>
-                        <dt>Klíčová slova</dt>
-                        <dd>{html.escape(keywords)}</dd>
+                        <dt>Důvody zařazení</dt>
+                        <dd>{reasons_html}</dd>
                     </div>
                     <div>
                         <dt>Doporučení</dt>
@@ -407,6 +497,7 @@ def build_html_report(signals, notes):
             --medium: #b76e00;
             --low: #2563eb;
             --dark: #111827;
+            --soft: #eef2ff;
         }}
 
         * {{
@@ -437,14 +528,70 @@ def build_html_report(signals, notes):
         }}
 
         main {{
-            max-width: 1100px;
+            max-width: 1180px;
             margin: 0 auto;
             padding: 24px;
         }}
 
+        .section-heading {{
+            margin-bottom: 16px;
+        }}
+
+        .section-heading h2 {{
+            margin: 0 0 4px 0;
+        }}
+
+        .section-heading p {{
+            margin: 0;
+            color: var(--muted);
+        }}
+
+        .summary-panel {{
+            margin-bottom: 28px;
+        }}
+
+        .company-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }}
+
+        .company-card {{
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+        }}
+
+        .company-name {{
+            font-weight: 800;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }}
+
+        .company-score {{
+            font-weight: 800;
+            font-size: 34px;
+            line-height: 1;
+            margin-bottom: 4px;
+        }}
+
+        .company-meta {{
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 10px;
+        }}
+
+        .company-signal {{
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.35;
+        }}
+
         .grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
             gap: 20px;
         }}
 
@@ -522,6 +669,10 @@ def build_html_report(signals, notes):
             margin-bottom: 18px;
         }}
 
+        .muted {{
+            color: var(--muted);
+        }}
+
         dl {{
             margin: 0 0 18px 0;
         }}
@@ -545,6 +696,15 @@ def build_html_report(signals, notes):
             line-height: 1.45;
         }}
 
+        .reasons {{
+            margin: 0;
+            padding-left: 18px;
+        }}
+
+        .reasons li {{
+            margin: 4px 0;
+        }}
+
         .button {{
             display: inline-block;
             background: var(--dark);
@@ -564,7 +724,7 @@ def build_html_report(signals, notes):
         }}
 
         footer {{
-            max-width: 1100px;
+            max-width: 1180px;
             margin: 0 auto;
             padding: 0 24px 32px 24px;
             color: var(--muted);
@@ -579,6 +739,13 @@ def build_html_report(signals, notes):
     </header>
 
     <main>
+        {summary_html}
+
+        <section class="section-heading">
+            <h2>Nalezené signály</h2>
+            <p>Zahrnuty jsou pouze články za posledních {MAX_AGE_DAYS} dní, které obsahují relevantní keyword nebo sledovanou firmu.</p>
+        </section>
+
         <section class="grid">
             {cards_html}
         </section>
@@ -587,7 +754,7 @@ def build_html_report(signals, notes):
     </main>
 
     <footer>
-        Generováno automaticky přes GitHub Actions. Zahrnuty jsou pouze články za posledních {MAX_AGE_DAYS} dní.
+        Generováno automaticky přes GitHub Actions. Scoring kombinuje klíčová slova, sledované firmy a aktuálnost článku.
     </footer>
 </body>
 </html>
