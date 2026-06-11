@@ -1,4 +1,4 @@
-threshold: 35
+threshold: 25
 
 scoring:
   direct_tender: 100
