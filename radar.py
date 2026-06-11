@@ -46,6 +46,7 @@ def extract_google_news_title_and_source(raw_title, raw_summary, default_source)
 
     if "<a " in summary.lower():
         soup = BeautifulSoup(summary, "html.parser")
+
         first_link = soup.find("a")
         if first_link:
             linked_title = first_link.get_text(" ", strip=True)
@@ -76,6 +77,7 @@ def get_entry_datetime(item):
     parsed_date = item.get("published_parsed") or item.get("updated_parsed")
     if not parsed_date:
         return None
+
     try:
         return datetime.fromtimestamp(time.mktime(parsed_date))
     except Exception:
@@ -86,6 +88,7 @@ def get_days_old(item):
     published_dt = get_entry_datetime(item)
     if not published_dt:
         return None
+
     return max(0, (datetime.now() - published_dt).days)
 
 
@@ -93,27 +96,67 @@ def is_recent(item):
     published_dt = get_entry_datetime(item)
     if not published_dt:
         return True
+
     return published_dt >= datetime.now() - timedelta(days=MAX_AGE_DAYS)
 
 
 def freshness_bonus(days_old):
     if days_old is None:
         return 0, None
+
     if days_old <= 3:
-        return 20, "čerstvý článek do 3 dnů (+20)"
+        return 20, "čerstvý článek do 3 dnů"
     if days_old <= 7:
-        return 12, "čerstvý článek do 7 dnů (+12)"
+        return 12, "čerstvý článek do 7 dnů"
     if days_old <= 30:
-        return 5, "aktuální článek do 30 dnů (+5)"
+        return 5, "aktuální článek do 30 dnů"
+
     return 0, None
 
 
 def contains_keyword(text, keyword):
     keyword_lower = keyword.lower().strip()
+
     if len(keyword_lower) <= 3:
-        pattern = r"(?<!\\w)" + re.escape(keyword_lower) + r"(?!\\w)"
+        pattern = r"(?<!\w)" + re.escape(keyword_lower) + r"(?!\w)"
         return re.search(pattern, text) is not None
+
     return keyword_lower in text
+
+
+def detect_companies(title, summary, config, source):
+    text = f"{title} {summary}".lower()
+    companies = []
+
+    ignored_company_names = {
+        "google",
+        "google news",
+        "mediář",
+        "mediar",
+        "mam",
+        "mediaguru",
+        "marketing journal",
+        "czechcrunch",
+        "lupa",
+    }
+
+    source_lower = (source or "").lower()
+
+    for company in config.get("companies", []):
+        company_lower = company.lower()
+
+        if company_lower in ignored_company_names:
+            continue
+
+        if company_lower == source_lower:
+            continue
+
+        pattern = r"(?<!\w)" + re.escape(company_lower) + r"(?!\w)"
+
+        if re.search(pattern, text):
+            companies.append(company)
+
+    return companies
 
 
 def score_entry(title, summary, config, days_old=None):
@@ -138,14 +181,14 @@ def score_entry(title, summary, config, days_old=None):
             if not in_title and not in_summary:
                 continue
 
-            is_anchor = category in ANCHOR_CATEGORIES
-            is_context = category in CONTEXT_CATEGORIES
-
             placement = "titulek" if in_title else "perex"
             points = base_points
 
             if in_title:
                 points = int(round(points * 1.5))
+
+            is_anchor = category in ANCHOR_CATEGORIES
+            is_context = category in CONTEXT_CATEGORIES
 
             if is_context:
                 context_matches.append({
@@ -186,40 +229,7 @@ def score_entry(title, summary, config, days_old=None):
                 "is_anchor": False,
             })
 
-    return score, reasons, anchor_found
-
-
-def detect_companies(title, summary, config, source):
-    text = f"{title} {summary}".lower()
-    companies = []
-
-    ignored_company_names = {
-        "google",
-        "google news",
-        "mediář",
-        "mediar",
-        "mam",
-        "mediaguru",
-        "marketing journal",
-        "czechcrunch",
-        "lupa",
-    }
-
-    source_lower = (source or "").lower()
-
-    for company in config.get("companies", []):
-        company_lower = company.lower()
-
-        if company_lower in ignored_company_names:
-            continue
-        if company_lower == source_lower:
-            continue
-
-        pattern = r"(?<!\\w)" + re.escape(company_lower) + r"(?!\\w)"
-        if re.search(pattern, text):
-            companies.append(company)
-
-    return companies
+    return score, reasons, anchor_found, context_matches
 
 
 def fetch_feed(source):
@@ -262,8 +272,9 @@ def fetch_feed(source):
 
 
 def collect_signals(config):
-    threshold = int(config.get("threshold", 25))
-    all_signals = []
+    threshold = int(config.get("threshold", 20))
+    strong_signals = []
+    fallback_signals = []
     notes = []
 
     for source in config.get("sources", []):
@@ -280,15 +291,12 @@ def collect_signals(config):
                 entry["source"],
             )
 
-            score, reasons, anchor_found = score_entry(
+            score, reasons, anchor_found, context_matches = score_entry(
                 entry["title"],
                 entry["summary"],
                 config,
                 entry.get("days_old"),
             )
-
-            if not anchor_found:
-                continue
 
             if companies:
                 score += 10
@@ -300,18 +308,44 @@ def collect_signals(config):
                     "is_anchor": False,
                 })
 
-            if score >= threshold:
-                all_signals.append({
-                    **entry,
-                    "score": score,
-                    "reasons": reasons,
-                    "companies": companies,
-                })
+            signal = {
+                **entry,
+                "score": score,
+                "reasons": reasons,
+                "companies": companies,
+                "is_fallback": False,
+            }
 
-    all_signals = deduplicate_signals(all_signals)
-    all_signals.sort(key=lambda x: x["score"], reverse=True)
+            if anchor_found and score >= threshold:
+                strong_signals.append(signal)
+                continue
 
-    return all_signals, notes
+            # Fallback: zobraz slabší věci, ale pouze pokud dávají aspoň nějaký BD smysl.
+            # Nepropouští samotné slovo "kampaň", pokud není sledovaná firma.
+            if companies and (score >= 10 or context_matches):
+                fallback_signal = {
+                    **signal,
+                    "is_fallback": True,
+                }
+
+                if not fallback_signal["reasons"]:
+                    fallback_signal["reasons"] = [{
+                        "label": "slabší zmínka sledované firmy",
+                        "points": 10,
+                        "category": "fallback",
+                        "placement": "titulek/perex",
+                        "is_anchor": False,
+                    }]
+
+                fallback_signals.append(fallback_signal)
+
+    strong_signals = deduplicate_signals(strong_signals)
+    fallback_signals = deduplicate_signals(fallback_signals)
+
+    strong_signals.sort(key=lambda x: x["score"], reverse=True)
+    fallback_signals.sort(key=lambda x: x["score"], reverse=True)
+
+    return strong_signals, fallback_signals[:24], notes
 
 
 def deduplicate_signals(signals):
@@ -319,7 +353,12 @@ def deduplicate_signals(signals):
     unique = []
 
     for signal in signals:
-        normalized_title = re.sub(r"\\W+", " ", signal.get("title", "").lower()).strip()
+        normalized_title = re.sub(
+            r"\W+",
+            " ",
+            signal.get("title", "").lower()
+        ).strip()
+
         key = normalized_title[:120]
 
         if key in seen:
@@ -356,13 +395,17 @@ def build_company_summary(signals):
     )[:8]
 
 
-def recommendation(score):
+def recommendation(score, is_fallback=False):
+    if is_fallback:
+        return "Slabší signál. Ověřit ručně, zda souvisí s komunikací, změnou agentury nebo možnou příležitostí."
+
     if score >= 120:
         return "Velmi silný signál. Ověřit tendr a okamžitě prověřit možnost účasti."
     if score >= 80:
         return "Silný signál. Zařadit do aktivního BD sledování a prověřit kontext."
     if score >= 45:
         return "Střední signál. Sledovat další vývoj a případně připravit warm intro."
+
     return "Slabší signál. Nechat ve sledování."
 
 
@@ -376,47 +419,147 @@ def format_reasons_text(reasons):
     )
 
 
-def build_text_report(signals, notes):
+def build_text_report(strong_signals, fallback_signals, notes):
     today = datetime.now().strftime("%d.%m.%Y")
     lines = [f"Tender radar – {today}", ""]
 
-    if not signals:
-        lines.append("Dnes nebyly nalezeny žádné signály nad nastaveným prahem.")
+    if not strong_signals and not fallback_signals:
+        lines.append("Dnes nebyly nalezeny žádné signály.")
     else:
-        top_companies = build_company_summary(signals)
+        if strong_signals:
+            lines.append("Silné signály:")
+            for i, signal in enumerate(strong_signals, start=1):
+                companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
+                age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
+                reasons = format_reasons_text(signal.get("reasons", []))
 
-        if top_companies:
-            lines.append("Top firmy podle skóre:")
-            for company, data in top_companies:
-                lines.append(f"- {company}: {data['score']} bodů / {data['count']} signálů")
-            lines.append("")
+                lines.append(f"{i}. {signal['title']}")
+                lines.append(f"Skóre: {signal['score']}")
+                lines.append(f"Firma: {companies}")
+                lines.append(f"Zdroj: {signal['source']}")
+                lines.append(f"Stáří: {age}")
+                lines.append(f"Důvody zařazení: {reasons}")
+                lines.append(f"Doporučení: {recommendation(signal['score'])}")
+                lines.append(f"Odkaz: {signal['link']}")
+                lines.append("")
 
-        for i, signal in enumerate(signals, start=1):
-            companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
-            age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
-            reasons = format_reasons_text(signal.get("reasons", []))
+        if fallback_signals:
+            lines.append("Slabší signály k ověření:")
+            for i, signal in enumerate(fallback_signals, start=1):
+                companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
+                age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
+                reasons = format_reasons_text(signal.get("reasons", []))
 
-            lines.append(f"{i}. {signal['title']}")
-            lines.append(f"Skóre: {signal['score']}")
-            lines.append(f"Firma: {companies}")
-            lines.append(f"Zdroj: {signal['source']}")
-            lines.append(f"Stáří: {age}")
-            lines.append(f"Důvody zařazení: {reasons}")
-            lines.append(f"Doporučení: {recommendation(signal['score'])}")
-            lines.append(f"Odkaz: {signal['link']}")
-            lines.append("")
+                lines.append(f"{i}. {signal['title']}")
+                lines.append(f"Skóre: {signal['score']}")
+                lines.append(f"Firma: {companies}")
+                lines.append(f"Zdroj: {signal['source']}")
+                lines.append(f"Stáří: {age}")
+                lines.append(f"Důvody zařazení: {reasons}")
+                lines.append(f"Odkaz: {signal['link']}")
+                lines.append("")
 
     if notes:
         lines.append("Poznámky ke zdrojům:")
         for note in notes:
             lines.append(f"- {note}")
 
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
-def build_html_report(signals, notes):
+def age_bucket(days_old):
+    if days_old is None:
+        return "unknown"
+    if days_old <= 7:
+        return "week"
+    if days_old <= 30:
+        return "month"
+    return "older"
+
+
+def render_cards(signals):
+    cards_html = ""
+
+    for signal in signals:
+        companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
+        days_old = signal.get("days_old")
+        age = f"{days_old} dní" if days_old is not None else "nezjištěno"
+        bucket = age_bucket(days_old)
+
+        score = signal["score"]
+
+        if signal.get("is_fallback"):
+            score_class = "fallback"
+        elif score >= 120:
+            score_class = "high"
+        elif score >= 80:
+            score_class = "medium"
+        else:
+            score_class = "low"
+
+        reasons_html = ""
+
+        if signal.get("reasons"):
+            reasons_html = "<ul class='reasons'>"
+            for reason in signal["reasons"]:
+                reasons_html += (
+                    f"<li>"
+                    f"<strong>{html.escape(str(reason['label']))}</strong> "
+                    f"<span class='points'>+{html.escape(str(reason['points']))}</span> "
+                    f"<span class='placement'>{html.escape(str(reason['placement']))}</span>"
+                    f"</li>"
+                )
+            reasons_html += "</ul>"
+        else:
+            reasons_html = "<p class='muted'>Důvod nebyl zjištěn.</p>"
+
+        fallback_badge = ""
+        if signal.get("is_fallback"):
+            fallback_badge = "<span class='badge'>slabší signál</span>"
+
+        cards_html += f"""
+        <article class="card" data-age="{bucket}">
+            <div class="card-top">
+                <span class="score {score_class}">{score}</span>
+                <div class="meta">
+                    <span class="source">{html.escape(signal["source"])}</span>
+                    <span class="age">{html.escape(age)}</span>
+                    {fallback_badge}
+                </div>
+            </div>
+
+            <h2>{html.escape(signal["title"])}</h2>
+
+            <p class="summary">{html.escape(signal["summary"][:420])}</p>
+
+            <dl>
+                <div>
+                    <dt>Firma</dt>
+                    <dd>{html.escape(companies)}</dd>
+                </div>
+                <div>
+                    <dt>Důvody zařazení</dt>
+                    <dd>{reasons_html}</dd>
+                </div>
+                <div>
+                    <dt>Doporučení</dt>
+                    <dd>{html.escape(recommendation(score, signal.get("is_fallback", False)))}</dd>
+                </div>
+            </dl>
+
+            <a class="button" href="{html.escape(signal["link"])}" target="_blank" rel="noopener noreferrer">
+                Otevřít zdroj
+            </a>
+        </article>
+        """
+
+    return cards_html
+
+
+def build_html_report(strong_signals, fallback_signals, notes):
     today = datetime.now().strftime("%d.%m.%Y")
-    top_companies = build_company_summary(signals)
+    all_signals = strong_signals + fallback_signals
+    top_companies = build_company_summary(all_signals)
 
     summary_html = ""
 
@@ -445,89 +588,29 @@ def build_html_report(signals, notes):
         </section>
         """
 
-    cards_html = ""
+    strong_cards = render_cards(strong_signals)
+    fallback_cards = render_cards(fallback_signals)
 
-    if not signals:
-        cards_html = """
+    if not strong_cards:
+        strong_cards = """
         <div class="empty">
-            <h2>Dnes nebyly nalezeny žádné signály nad nastaveným prahem.</h2>
-            <p>Radar běží správně. Aktuálně nenašel relevantní tendrový, agenturní, procurement nebo personální signál.</p>
+            <h2>Dnes nebyly nalezeny žádné silné signály.</h2>
+            <p>Podívej se níže na slabší signály k ověření. Ty pomáhají ladit keywordy a sledované firmy.</p>
         </div>
         """
-    else:
-        for signal in signals:
-            companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
-            days_old = signal.get("days_old")
-            age = f"{days_old} dní" if days_old is not None else "nezjištěno"
 
-            if days_old is None:
-                age_bucket = "unknown"
-            elif days_old <= 7:
-                age_bucket = "week"
-            elif days_old <= 30:
-                age_bucket = "month"
-            else:
-                age_bucket = "older"
+    fallback_section = ""
+    if fallback_signals:
+        fallback_section = f"""
+        <section class="section-heading secondary-heading">
+            <h2>Slabší signály k ověření</h2>
+            <p>Fallback režim: položky se sledovanou firmou nebo slabším kontextem. Neznamenají tendr, ale pomáhají ladit záběr.</p>
+        </section>
 
-            score = signal["score"]
-
-            if score >= 120:
-                score_class = "high"
-            elif score >= 80:
-                score_class = "medium"
-            else:
-                score_class = "low"
-
-            reasons_html = ""
-
-            if signal.get("reasons"):
-                reasons_html = "<ul class='reasons'>"
-                for reason in signal["reasons"]:
-                    reasons_html += (
-                        f"<li>"
-                        f"<strong>{html.escape(str(reason['label']))}</strong> "
-                        f"<span class='points'>+{html.escape(str(reason['points']))}</span> "
-                        f"<span class='placement'>{html.escape(str(reason['placement']))}</span>"
-                        f"</li>"
-                    )
-                reasons_html += "</ul>"
-            else:
-                reasons_html = "<p class='muted'>Důvod nebyl zjištěn.</p>"
-
-            cards_html += f"""
-            <article class="card" data-age="{age_bucket}">
-                <div class="card-top">
-                    <span class="score {score_class}">{score}</span>
-                    <div class="meta">
-                        <span class="source">{html.escape(signal["source"])}</span>
-                        <span class="age">{html.escape(age)}</span>
-                    </div>
-                </div>
-
-                <h2>{html.escape(signal["title"])}</h2>
-
-                <p class="summary">{html.escape(signal["summary"][:420])}</p>
-
-                <dl>
-                    <div>
-                        <dt>Firma</dt>
-                        <dd>{html.escape(companies)}</dd>
-                    </div>
-                    <div>
-                        <dt>Důvody zařazení</dt>
-                        <dd>{reasons_html}</dd>
-                    </div>
-                    <div>
-                        <dt>Doporučení</dt>
-                        <dd>{html.escape(recommendation(score))}</dd>
-                    </div>
-                </dl>
-
-                <a class="button" href="{html.escape(signal["link"])}" target="_blank" rel="noopener noreferrer">
-                    Otevřít zdroj
-                </a>
-            </article>
-            """
+        <section class="grid">
+            {fallback_cards}
+        </section>
+        """
 
     notes_html = ""
 
@@ -553,6 +636,7 @@ def build_html_report(signals, notes):
             --high: #b42318;
             --medium: #b76e00;
             --low: #2563eb;
+            --fallback: #64748b;
             --dark: #111827;
         }}
 
@@ -614,6 +698,10 @@ def build_html_report(signals, notes):
 
         .section-heading {{
             margin-bottom: 16px;
+        }}
+
+        .secondary-heading {{
+            margin-top: 34px;
         }}
 
         .section-heading h2 {{
@@ -710,6 +798,7 @@ def build_html_report(signals, notes):
         .score.high {{ background: var(--high); }}
         .score.medium {{ background: var(--medium); }}
         .score.low {{ background: var(--low); }}
+        .score.fallback {{ background: var(--fallback); }}
 
         .meta {{
             display: flex;
@@ -730,6 +819,15 @@ def build_html_report(signals, notes):
             color: var(--muted);
             font-size: 13px;
             text-align: right;
+        }}
+
+        .badge {{
+            background: #eef2f7;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 999px;
         }}
 
         h2 {{
@@ -824,8 +922,8 @@ def build_html_report(signals, notes):
         {summary_html}
 
         <section class="section-heading">
-            <h2>Nalezené signály</h2>
-            <p>Článek se zařadí pouze tehdy, pokud obsahuje skutečný tendrový, agenturní, procurement, personální nebo byznysový signál.</p>
+            <h2>Silné signály</h2>
+            <p>Články s tendrovým, agenturním, procurement, personálním nebo byznysovým signálem.</p>
         </section>
 
         <div class="filters">
@@ -835,15 +933,17 @@ def build_html_report(signals, notes):
             <button class="filter-button" data-filter="older">31–90 dní</button>
         </div>
 
-        <section class="grid" id="signals-grid">
-            {cards_html}
+        <section class="grid">
+            {strong_cards}
         </section>
+
+        {fallback_section}
 
         {notes_html}
     </main>
 
     <footer>
-        Generováno automaticky přes GitHub Actions. Scoring zohledňuje sílu signálu, umístění v titulku/perexu, sledované firmy a aktuálnost článku.
+        Generováno automaticky přes GitHub Actions. Fallback režim slouží k ladění zdrojů a keywordů.
     </footer>
 
     <script>
@@ -894,10 +994,10 @@ def save_html(html_body):
 
 def main():
     config = load_config()
-    signals, notes = collect_signals(config)
+    strong_signals, fallback_signals, notes = collect_signals(config)
 
-    text_body = build_text_report(signals, notes)
-    html_body = build_html_report(signals, notes)
+    text_body = build_text_report(strong_signals, fallback_signals, notes)
+    html_body = build_html_report(strong_signals, fallback_signals, notes)
 
     output_path = save_html(html_body)
 
