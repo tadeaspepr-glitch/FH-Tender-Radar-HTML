@@ -14,6 +14,19 @@ OUTPUT_DIR = "public"
 OUTPUT_FILE = "index.html"
 MAX_AGE_DAYS = 45
 
+ANCHOR_CATEGORIES = {
+    "direct_tender",
+    "tender_result",
+    "agency_change",
+    "procurement",
+    "people_signal",
+    "business_signal",
+}
+
+CONTEXT_CATEGORIES = {
+    "context",
+}
+
 
 def load_config():
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -101,45 +114,89 @@ def freshness_bonus(days_old):
         return 0, None
 
     if days_old <= 3:
-        return 30, f"čerstvý článek do 3 dnů (+30)"
+        return 20, "čerstvý článek do 3 dnů (+20)"
     if days_old <= 7:
-        return 20, f"čerstvý článek do 7 dnů (+20)"
+        return 12, "čerstvý článek do 7 dnů (+12)"
     if days_old <= 30:
-        return 10, f"aktuální článek do 30 dnů (+10)"
+        return 5, "aktuální článek do 30 dnů (+5)"
 
     return 0, None
 
 
+def contains_keyword(text, keyword):
+    keyword_lower = keyword.lower().strip()
+
+    if len(keyword_lower) <= 3:
+        pattern = r"(?<!\w)" + re.escape(keyword_lower) + r"(?!\w)"
+        return re.search(pattern, text) is not None
+
+    return keyword_lower in text
+
+
 def score_entry(title, summary, config, days_old=None):
-    text = f"{title} {summary}".lower()
-    score = 0
-    keyword_reasons = []
+    title_lower = title.lower()
+    summary_lower = summary.lower()
+    full_text = f"{title_lower} {summary_lower}"
 
     scoring = config.get("scoring", {})
+    keyword_config = config.get("keywords", {})
 
-    for level, points in scoring.items():
-        keywords = config.get("keywords", {}).get(level, [])
+    score = 0
+    reasons = []
+    anchor_found = False
+
+    for category, keywords in keyword_config.items():
+        base_points = int(scoring.get(category, 0))
+
         for keyword in keywords:
-            if keyword.lower() in text:
-                score += int(points)
-                keyword_reasons.append({
-                    "label": keyword,
-                    "points": int(points),
-                    "type": level,
-                })
+            keyword_lower = keyword.lower().strip()
+
+            in_title = contains_keyword(title_lower, keyword_lower)
+            in_summary = contains_keyword(summary_lower, keyword_lower)
+
+            if not in_title and not in_summary:
+                continue
+
+            is_anchor = category in ANCHOR_CATEGORIES
+            is_context = category in CONTEXT_CATEGORIES
+
+            if is_anchor:
+                anchor_found = True
+
+            # Context sám článek nezařadí. Přidá se až později, pokud existuje anchor.
+            if is_context and not anchor_found:
+                continue
+
+            points = base_points
+
+            if in_title:
+                points = int(round(points * 1.5))
+                placement = "titulek"
+            else:
+                placement = "perex"
+            
+            score += points
+            reasons.append({
+                "label": keyword,
+                "points": points,
+                "category": category,
+                "placement": placement,
+                "is_anchor": is_anchor,
+            })
 
     freshness_points, freshness_reason = freshness_bonus(days_old)
-    score += freshness_points
 
-    reasons = []
+    if anchor_found and freshness_points:
+        score += freshness_points
+        reasons.append({
+            "label": freshness_reason,
+            "points": freshness_points,
+            "category": "freshness",
+            "placement": "datum",
+            "is_anchor": False,
+        })
 
-    for reason in keyword_reasons:
-        reasons.append(f"{reason['label']} (+{reason['points']})")
-
-    if freshness_reason:
-        reasons.append(freshness_reason)
-
-    return score, keyword_reasons, freshness_points, reasons
+    return score, reasons, anchor_found
 
 
 def detect_companies(title, summary, config, source):
@@ -224,7 +281,7 @@ def fetch_feed(source):
 
 
 def collect_signals(config):
-    threshold = int(config.get("threshold", 30))
+    threshold = int(config.get("threshold", 35))
     all_signals = []
     notes = []
 
@@ -242,29 +299,32 @@ def collect_signals(config):
                 entry["source"],
             )
 
-            score, keyword_reasons, freshness, reasons = score_entry(
+            score, reasons, anchor_found = score_entry(
                 entry["title"],
                 entry["summary"],
                 config,
                 entry.get("days_old"),
             )
 
-            # Záznam neprojde jen díky stáří článku.
-            # Musí mít buď keyword match, nebo zmínku sledované firmy.
-            if not keyword_reasons and not companies:
+            # Bez silnějšího signálu už článek neprojde.
+            # Firma nebo slovo "kampaň" nestačí.
+            if not anchor_found:
                 continue
 
-            # Pokud má jen firmu, ale žádný keyword, držíme ho níže.
-            if companies and not keyword_reasons:
-                score += 5
-                reasons.append("zmínka sledované firmy (+5)")
+            if companies:
+                score += 10
+                reasons.append({
+                    "label": "zmínka sledované firmy",
+                    "points": 10,
+                    "category": "company",
+                    "placement": "titulek/perex",
+                    "is_anchor": False,
+                })
 
             if score >= threshold:
                 signal = {
                     **entry,
                     "score": score,
-                    "keyword_reasons": keyword_reasons,
-                    "freshness": freshness,
                     "reasons": reasons,
                     "companies": companies,
                 }
@@ -326,13 +386,23 @@ def build_company_summary(signals):
 
 
 def recommendation(score):
-    if score >= 90:
-        return "Ověřit možnost účasti v tendru / kontaktovat relevantní decision makery."
-    if score >= 60:
-        return "Zařadit do aktivního BD sledování a prověřit kontext."
-    if score >= 30:
-        return "Sledovat další vývoj a případné navazující signály."
-    return "Nízká priorita."
+    if score >= 120:
+        return "Velmi silný signál. Ověřit tendr a okamžitě prověřit možnost účasti."
+    if score >= 80:
+        return "Silný signál. Zařadit do aktivního BD sledování a prověřit kontext."
+    if score >= 45:
+        return "Střední signál. Sledovat další vývoj a případně připravit warm intro."
+    return "Slabší signál. Nechat ve sledování."
+
+
+def format_reasons_text(reasons):
+    if not reasons:
+        return "nezjištěno"
+
+    return ", ".join(
+        f"{reason['label']} (+{reason['points']}, {reason['placement']})"
+        for reason in reasons
+    )
 
 
 def build_text_report(signals, notes):
@@ -352,8 +422,8 @@ def build_text_report(signals, notes):
 
         for i, signal in enumerate(signals, start=1):
             companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
-            reasons = ", ".join(signal["reasons"]) if signal["reasons"] else "nezjištěno"
             age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
+            reasons = format_reasons_text(signal.get("reasons", []))
 
             lines.append(f"{i}. {signal['title']}")
             lines.append(f"Skóre: {signal['score']}")
@@ -410,7 +480,7 @@ def build_html_report(signals, notes):
         cards_html = """
         <div class="empty">
             <h2>Dnes nebyly nalezeny žádné signály nad nastaveným prahem.</h2>
-            <p>Radar běží správně, jen aktuálně nenašel relevantní zmínky.</p>
+            <p>Radar běží správně. Aktuálně nenašel relevantní tendrový, agenturní, procurement nebo personální signál.</p>
         </div>
         """
     else:
@@ -420,9 +490,9 @@ def build_html_report(signals, notes):
 
             score = signal["score"]
 
-            if score >= 90:
+            if score >= 120:
                 score_class = "high"
-            elif score >= 60:
+            elif score >= 80:
                 score_class = "medium"
             else:
                 score_class = "low"
@@ -432,7 +502,13 @@ def build_html_report(signals, notes):
             if signal.get("reasons"):
                 reasons_html = "<ul class='reasons'>"
                 for reason in signal["reasons"]:
-                    reasons_html += f"<li>{html.escape(reason)}</li>"
+                    reasons_html += (
+                        f"<li>"
+                        f"<strong>{html.escape(str(reason['label']))}</strong> "
+                        f"<span class='points'>+{html.escape(str(reason['points']))}</span> "
+                        f"<span class='placement'>{html.escape(str(reason['placement']))}</span>"
+                        f"</li>"
+                    )
                 reasons_html += "</ul>"
             else:
                 reasons_html = "<p class='muted'>Důvod nebyl zjištěn.</p>"
@@ -497,7 +573,6 @@ def build_html_report(signals, notes):
             --medium: #b76e00;
             --low: #2563eb;
             --dark: #111827;
-            --soft: #eef2ff;
         }}
 
         * {{
@@ -705,6 +780,17 @@ def build_html_report(signals, notes):
             margin: 4px 0;
         }}
 
+        .points {{
+            font-weight: 700;
+            color: var(--dark);
+        }}
+
+        .placement {{
+            color: var(--muted);
+            font-size: 13px;
+            margin-left: 4px;
+        }}
+
         .button {{
             display: inline-block;
             background: var(--dark);
@@ -743,7 +829,7 @@ def build_html_report(signals, notes):
 
         <section class="section-heading">
             <h2>Nalezené signály</h2>
-            <p>Zahrnuty jsou pouze články za posledních {MAX_AGE_DAYS} dní, které obsahují relevantní keyword nebo sledovanou firmu.</p>
+            <p>Článek se zařadí pouze tehdy, pokud obsahuje skutečný tendrový, agenturní, procurement, personální nebo byznysový signál. Samotné slovo „kampaň“ už nestačí.</p>
         </section>
 
         <section class="grid">
@@ -754,7 +840,7 @@ def build_html_report(signals, notes):
     </main>
 
     <footer>
-        Generováno automaticky přes GitHub Actions. Scoring kombinuje klíčová slova, sledované firmy a aktuálnost článku.
+        Generováno automaticky přes GitHub Actions. Scoring zohledňuje sílu signálu, umístění v titulku/perexu, sledované firmy a aktuálnost článku.
     </footer>
 </body>
 </html>
