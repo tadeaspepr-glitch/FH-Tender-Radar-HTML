@@ -1,13 +1,13 @@
-# Tender radar MVP configuration
-# Edit this file first: companies, feeds, keywords and scoring are intentionally transparent.
-
-threshold: 15
+threshold: 35
 
 scoring:
-  high: 100
-  medium: 50
-  low: 20
-  weak: 10
+  direct_tender: 100
+  tender_result: 70
+  agency_change: 60
+  procurement: 50
+  people_signal: 30
+  business_signal: 15
+  context: 5
 
 companies:
   - Lenovo
@@ -30,7 +30,6 @@ companies:
   - Honor
   - Motorola
   - Apple
-  - Google
   - Meta
   - TikTok
   - Netflix
@@ -45,65 +44,134 @@ companies:
   - Rohlik
   - Wolt
   - Bolt
+  - Komerční banka
+  - ČSOB
+  - Škoda Auto
 
 keywords:
-  high:
+  direct_tender:
     - vyhlašuje tendr
-    - vypisuje tendr
+    - vyhlásila tendr
     - vypsala tendr
     - vypsal tendr
-    - výběrové řízení na PR agenturu
+    - vypisuje tendr
+    - vypisuje výběrové řízení
+    - vyhlašuje výběrové řízení
+    - vyhlásila výběrové řízení
+    - uzavřené výběrové řízení
+    - otevřené výběrové řízení
     - tendr na PR agenturu
+    - tendr na kreativní agenturu
+    - tendr na digitální agenturu
+    - tendr na mediální agenturu
+    - tendr na marketingovou agenturu
+    - výběrové řízení na PR agenturu
+    - výběrové řízení na kreativní agenturu
+    - výběrové řízení na digitální agenturu
+    - výběrové řízení na mediální agenturu
     - hledá PR agenturu
     - hledá komunikační agenturu
-    - public relations agenturu
+    - hledá kreativní agenturu
+    - hledá digitální agenturu
+    - hledá nového dodavatele
+    - hledá nového partnera
+    - poptává služby
     - RFI
     - RFP
 
-  medium:
-    - tendr
-    - výběrové řízení
-    - výběrového řízení
-    - agenturní tendr
-    - PR agentura
-    - komunikační agentura
-    - kreativní agentura
-    - mediální agentura
-    - digitální agentura
-    - marketingová agentura
+  tender_result:
+    - vítězem výběrového řízení
+    - vítězem tendru
+    - vyhrála tendr
+    - vyhrál tendr
+    - uspěla v tendru
+    - uspěl v tendru
+    - dokončila výběrové řízení
+    - dokončil výběrové řízení
     - vybrala agenturu
     - vybral agenturu
-    - mění agenturu
-    - nová agentura
-    - férový tendr
+    - vybírá agenturu
+    - si vybrala agenturu
+    - si vybral agenturu
+    - nově vybraná agentura
+    - nově vybranou agenturou
+    - agentura bude zajišťovat
 
-  low:
+  agency_change:
+    - mění agenturu
+    - mění komunikační agenturu
+    - mění PR agenturu
+    - nová PR agentura
+    - nová komunikační agentura
+    - nová kreativní agentura
+    - nová digitální agentura
+    - stávající agentura
+    - dosavadní agentura
+    - ukončila spolupráci s agenturou
+    - ukončil spolupráci s agenturou
+    - spolupráce s novou agenturou
+    - agenturní roster
+    - agency roster
+    - agency review
+
+  procurement:
+    - procurement
+    - sourcing
+    - dodavatel PR služeb
+    - dodavatel komunikačních služeb
+    - dodavatele pro oblast public relations
+    - poskytovat kompletní služby
+    - poskytovat služby v oblasti public relations
+    - poskytovat služby v oblasti komunikace
+    - strategický partner
+    - kreativně-strategický partner
+    - komunikační partner
+    - PR partner
+    - marketingový partner
+    - public relations
+    - media relations
+    - corporate communications
+
+  people_signal:
     - nový marketingový ředitel
     - nová marketingová ředitelka
     - nový komunikační ředitel
     - nová komunikační ředitelka
+    - nový ředitel komunikace
+    - nová ředitelka komunikace
     - communications manager
+    - communications director
+    - head of communications
     - marketing manager
     - marketing director
-    - communications director
+    - head of marketing
     - country manager
     - generální ředitel
-    - personální změna
+    - novým CEO
+    - novou CEO
     - posiluje marketing
     - posiluje komunikaci
 
-  weak:
+  business_signal:
     - rebranding
     - nová strategie
     - expanze
     - vstup na český trh
     - vstupuje na český trh
-    - launch
-    - uvedla na trh
+    - spouští v Česku
+    - rozšiřuje aktivity
+    - posiluje na českém trhu
+
+  context:
     - kampaň
     - komunikace značky
+    - launch
+    - uvedla na trh
+    - uvedl na trh
     - public affairs
     - corporate affairs
+    - reputation
+    - reputace
 
 sources:
   - name: Mediář
@@ -124,20 +192,11 @@ sources:
   - name: Lupa
     url: https://www.lupa.cz/rss/clanky/
 
-  - name: Google News – PR agentura tendr
-    url: https://news.google.com/rss/search?q=%22PR%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
+  - name: Google News – PR tendr
+    url: https://news.google.com/rss/search?q=%28%22PR%20agentura%22%20OR%20%22public%20relations%22%20OR%20%22komunika%C4%8Dn%C3%AD%20agentura%22%29%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20RFI%20OR%20RFP%29%20when%3A45d&hl=cs&gl=CZ&ceid=CZ:cs
 
-  - name: Google News – komunikační agentura tendr
-    url: https://news.google.com/rss/search?q=%22komunikační%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
+  - name: Google News – kreativní a digitální agentura
+    url: https://news.google.com/rss/search?q=%28%22kreativn%C3%AD%20agentura%22%20OR%20%22digit%C3%A1ln%C3%AD%20agentura%22%20OR%20%22medi%C3%A1ln%C3%AD%20agentura%22%29%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20%22vybrala%20agenturu%22%29%20when%3A45d&hl=cs&gl=CZ&ceid=CZ:cs
 
-  - name: Google News – marketingová agentura tendr
-    url: https://news.google.com/rss/search?q=%22marketingová%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
-
-  - name: Google News – kreativní agentura tendr
-    url: https://news.google.com/rss/search?q=%22kreativní%20agentura%22%20tendr%20OR%20%22výběrové%20řízení%22&hl=cs&gl=CZ&ceid=CZ:cs
-
-  - name: Google News – public relations tendr
-    url: https://news.google.com/rss/search?q=%22public%20relations%22%20tendr%20OR%20%22PR%20agenturu%22&hl=cs&gl=CZ&ceid=CZ:cs
-
-  - name: Google News – nové vedení marketing
-    url: https://news.google.com/rss/search?q=%22marketingový%20ředitel%22%20OR%20%22marketingová%20ředitelka%22%20OR%20%22communications%20manager%22&hl=cs&gl=CZ&ceid=CZ:cs
+  - name: Google News – nový komunikační nebo marketingový ředitel
+    url: https://news.google.com/rss/search?q=%28%22marketingov%C3%BD%20%C5%99editel%22%20OR%20%22marketingov%C3%A1%20%C5%99editelka%22%20OR%20%22%C5%99editel%20komunikace%22%20OR%20%22%C5%99editelka%20komunikace%22%20OR%20%22head%20of%20communications%22%29%20when%3A45d&hl=cs&gl=CZ&ceid=CZ:cs
