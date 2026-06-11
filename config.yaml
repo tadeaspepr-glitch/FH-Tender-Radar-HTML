@@ -1,4 +1,4 @@
-threshold: 25
+threshold: 20
 
 scoring:
   direct_tender: 100
@@ -161,6 +161,14 @@ keywords:
     - spouští v Česku
     - rozšiřuje aktivity
     - posiluje na českém trhu
+    - vybrala
+    - vybral
+    - hledá
+    - spolupráce s agenturou
+    - agentura zajišťuje
+    - agentura zajistí
+    - komunikaci zajistí
+    - komunikaci bude zajišťovat
 
   context:
     - kampaň
