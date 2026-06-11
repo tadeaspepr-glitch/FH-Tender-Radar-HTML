@@ -92,8 +92,15 @@ keywords:
     - request for proposal
 
   tender_result:
+    - tendr má vítěze
+    - dlouhý tendr má konečně vítěze
+    - má konečně vítěze
     - vítězem výběrového řízení
     - vítězem tendru
+    - vítězem tendru se stala
+    - vítězem tendru se stal
+    - vítězem výběrového řízení se stala
+    - vítězem výběrového řízení se stal
     - vyhrála tendr
     - vyhrál tendr
     - uspěla v tendru
@@ -102,6 +109,8 @@ keywords:
     - uspěl ve výběrovém řízení
     - dokončila výběrové řízení
     - dokončil výběrové řízení
+    - dokončila výběr
+    - dokončil výběr
     - vybrala agenturu
     - vybral agenturu
     - vybrala si agenturu
@@ -122,6 +131,8 @@ keywords:
     - komunikaci bude zajišťovat
     - komunikaci zajistí
     - agentura zajistí
+    - pokračovat s agenturou
+    - bude pokračovat s agenturou
 
   agency_change:
     - mění agenturu
@@ -227,19 +238,12 @@ keywords:
     - mění pozicioning
 
   context:
-    - kampaň
-    - komunikační kampaň
-    - marketingová kampaň
-    - komunikace značky
-    - launch
-    - uvedla na trh
-    - uvedl na trh
     - public affairs
     - corporate affairs
     - reputation
     - reputace
-    - brand
-    - značka
+    - komunikační kampaň
+    - marketingová kampaň
 
 sources:
   - name: Mediář
@@ -289,3 +293,15 @@ sources:
 
   - name: Google News – expanze technologických firem
     url: https://news.google.com/rss/search?q=%28Lenovo%20OR%20Samsung%20OR%20HP%20OR%20Dell%20OR%20Microsoft%20OR%20Cisco%20OR%20Oracle%20OR%20IBM%20OR%20Intel%20OR%20vivo%20OR%20Xiaomi%20OR%20Motorola%20OR%20Honor%20OR%20Vodafone%20OR%20O2%20OR%20T-Mobile%20OR%20Alza%20OR%20Datart%20OR%20Wolt%20OR%20Bolt%29%20%28%22vstupuje%20na%20%C4%8Desk%C3%BD%20trh%22%20OR%20%22vstup%20na%20%C4%8Desk%C3%BD%20trh%22%20OR%20expanze%20OR%20rebranding%20OR%20%22nov%C3%A1%20strategie%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – tendr má vítěze
+    url: https://news.google.com/rss/search?q=%28%22tendr%20m%C3%A1%20v%C3%ADt%C4%9Bze%22%20OR%20%22v%C3%ADt%C4%9Bzem%20tendru%22%20OR%20%22v%C3%ADt%C4%9Bzem%20v%C3%BDb%C4%9Brov%C3%A9ho%20%C5%99%C3%ADzen%C3%AD%22%20OR%20%22bude%20pokra%C4%8Dovat%20s%20agenturou%22%20OR%20%22pokra%C4%8Dovat%20s%20agenturou%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – Mediář tendry
+    url: https://news.google.com/rss/search?q=site%3Amediar.cz%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20agentura%20OR%20agenturou%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – MediaGuru tendry
+    url: https://news.google.com/rss/search?q=site%3Amediaguru.cz%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20agentura%20OR%20agenturou%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – MAM tendry
+    url: https://news.google.com/rss/search?q=site%3Amam.cz%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20agentura%20OR%20agenturou%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
