@@ -1,14 +1,18 @@
 import os
+import re
 import html
+import time
 import yaml
 import feedparser
-from datetime import datetime
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 
 CONFIG_FILE = "config.yaml"
 OUTPUT_DIR = "public"
 OUTPUT_FILE = "index.html"
+MAX_AGE_DAYS = 45
 
 
 def load_config():
@@ -16,13 +20,104 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def normalise_text(value):
+def clean_html_text(value):
     if not value:
         return ""
-    return " ".join(str(value).split())
+
+    value = html.unescape(str(value))
+    soup = BeautifulSoup(value, "html.parser")
+    text = soup.get_text(" ", strip=True)
+
+    return " ".join(text.split())
 
 
-def score_entry(title, summary, config):
+def extract_google_news_title_and_source(raw_title, raw_summary, default_source):
+    title = clean_html_text(raw_title)
+    summary = str(raw_summary or "")
+
+    source = default_source
+
+    if "<a " in summary.lower():
+        soup = BeautifulSoup(summary, "html.parser")
+        first_link = soup.find("a")
+
+        if first_link:
+            linked_title = first_link.get_text(" ", strip=True)
+            if linked_title:
+                title = clean_html_text(linked_title)
+
+        font_tag = soup.find("font")
+        if font_tag:
+            extracted_source = font_tag.get_text(" ", strip=True)
+            if extracted_source:
+                source = clean_html_text(extracted_source)
+
+    # Google News sometimes formats title as "Article title - Source"
+    if " - " in title and default_source.lower().startswith("google news"):
+        possible_title, possible_source = title.rsplit(" - ", 1)
+        if len(possible_source) < 50:
+            title = possible_title.strip()
+            source = possible_source.strip()
+
+    return title, source
+
+
+def source_name_from_url(url):
+    parsed = urlparse(url)
+    host = parsed.netloc.replace("www.", "")
+    return host or url
+
+
+def get_entry_datetime(item):
+    parsed_date = None
+
+    if item.get("published_parsed"):
+        parsed_date = item.get("published_parsed")
+    elif item.get("updated_parsed"):
+        parsed_date = item.get("updated_parsed")
+
+    if not parsed_date:
+        return None
+
+    try:
+        return datetime.fromtimestamp(time.mktime(parsed_date))
+    except Exception:
+        return None
+
+
+def is_recent(item):
+    published_dt = get_entry_datetime(item)
+
+    if not published_dt:
+        return True
+
+    return published_dt >= datetime.now() - timedelta(days=MAX_AGE_DAYS)
+
+
+def get_days_old(item):
+    published_dt = get_entry_datetime(item)
+
+    if not published_dt:
+        return None
+
+    return max(0, (datetime.now() - published_dt).days)
+
+
+def freshness_bonus(days_old):
+    if days_old is None:
+        return 0
+
+    if days_old <= 3:
+        return 30
+    if days_old <= 7:
+        return 20
+    if days_old <= 30:
+        return 10
+
+    return 0
+
+
+def score_entry(title, summary, config, days_old=None):
     text = f"{title} {summary}".lower()
     score = 0
     matched_keywords = []
@@ -36,40 +131,72 @@ def score_entry(title, summary, config):
                 score += int(points)
                 matched_keywords.append(keyword)
 
+    score += freshness_bonus(days_old)
+
     return score, matched_keywords
 
 
-def detect_companies(title, summary, config):
+def detect_companies(title, summary, config, source):
     text = f"{title} {summary}".lower()
     companies = []
 
+    ignored_company_names = {
+        "google",
+        "google news",
+        "mediář",
+        "mediar",
+        "mam",
+        "mediaguru",
+        "marketing journal",
+        "czechcrunch",
+        "lupa",
+    }
+
+    source_lower = (source or "").lower()
+
     for company in config.get("companies", []):
-        if company.lower() in text:
+        company_lower = company.lower()
+
+        if company_lower in ignored_company_names:
+            continue
+
+        if company_lower == source_lower:
+            continue
+
+        pattern = r"(?<!\w)" + re.escape(company_lower) + r"(?!\w)"
+
+        if re.search(pattern, text):
             companies.append(company)
 
     return companies
 
 
-def source_name_from_url(url):
-    parsed = urlparse(url)
-    host = parsed.netloc.replace("www.", "")
-    return host or url
-
-
 def fetch_feed(source):
     feed_url = source.get("url")
-    source_name = source.get("name") or source_name_from_url(feed_url)
+    configured_source_name = source.get("name") or source_name_from_url(feed_url)
 
     parsed = feedparser.parse(feed_url)
 
-    if parsed.bozo:
-        return [], f"{source_name}: feed warning/error: {parsed.bozo_exception}"
-
     entries = []
+    warning = None
+
+    if parsed.bozo:
+        warning = f"{configured_source_name}: feed warning/error: {parsed.bozo_exception}"
 
     for item in parsed.entries:
-        title = normalise_text(item.get("title", ""))
-        summary = normalise_text(item.get("summary", ""))
+        if not is_recent(item):
+            continue
+
+        raw_title = item.get("title", "")
+        raw_summary = item.get("summary", "")
+
+        title, detected_source = extract_google_news_title_and_source(
+            raw_title,
+            raw_summary,
+            configured_source_name
+        )
+
+        summary = clean_html_text(raw_summary)
         link = item.get("link", "")
 
         published = (
@@ -79,14 +206,15 @@ def fetch_feed(source):
         )
 
         entries.append({
-            "source": source_name,
+            "source": detected_source,
             "title": title,
             "summary": summary,
             "link": link,
             "published": published,
+            "days_old": get_days_old(item),
         })
 
-    return entries, None
+    return entries, warning
 
 
 def collect_signals(config):
@@ -104,13 +232,15 @@ def collect_signals(config):
             score, matched_keywords = score_entry(
                 entry["title"],
                 entry["summary"],
-                config
+                config,
+                entry.get("days_old"),
             )
 
             companies = detect_companies(
                 entry["title"],
                 entry["summary"],
-                config
+                config,
+                entry["source"],
             )
 
             if score >= threshold:
@@ -122,8 +252,32 @@ def collect_signals(config):
                 }
                 all_signals.append(signal)
 
+    all_signals = deduplicate_signals(all_signals)
     all_signals.sort(key=lambda x: x["score"], reverse=True)
+
     return all_signals, notes
+
+
+def deduplicate_signals(signals):
+    seen = set()
+    unique = []
+
+    for signal in signals:
+        normalized_title = re.sub(
+            r"\W+",
+            " ",
+            signal.get("title", "").lower()
+        ).strip()
+
+        key = normalized_title[:120]
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique.append(signal)
+
+    return unique
 
 
 def recommendation(score):
@@ -146,11 +300,13 @@ def build_text_report(signals, notes):
         for i, signal in enumerate(signals, start=1):
             companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
             keywords = ", ".join(signal["keywords"]) if signal["keywords"] else "nezjištěno"
+            age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
 
             lines.append(f"{i}. {signal['title']}")
             lines.append(f"Skóre: {signal['score']}")
             lines.append(f"Firma: {companies}")
             lines.append(f"Zdroj: {signal['source']}")
+            lines.append(f"Stáří: {age}")
             lines.append(f"Klíčová slova: {keywords}")
             lines.append(f"Doporučení: {recommendation(signal['score'])}")
             lines.append(f"Odkaz: {signal['link']}")
@@ -180,8 +336,10 @@ def build_html_report(signals, notes):
         for signal in signals:
             companies = ", ".join(signal["companies"]) if signal["companies"] else "nezjištěno"
             keywords = ", ".join(signal["keywords"]) if signal["keywords"] else "nezjištěno"
+            age = f"{signal['days_old']} dní" if signal.get("days_old") is not None else "nezjištěno"
 
             score = signal["score"]
+
             if score >= 90:
                 score_class = "high"
             elif score >= 60:
@@ -193,12 +351,15 @@ def build_html_report(signals, notes):
             <article class="card">
                 <div class="card-top">
                     <span class="score {score_class}">{score}</span>
-                    <span class="source">{html.escape(signal["source"])}</span>
+                    <div class="meta">
+                        <span class="source">{html.escape(signal["source"])}</span>
+                        <span class="age">{html.escape(age)}</span>
+                    </div>
                 </div>
 
                 <h2>{html.escape(signal["title"])}</h2>
 
-                <p class="summary">{html.escape(signal["summary"][:500])}</p>
+                <p class="summary">{html.escape(signal["summary"][:420])}</p>
 
                 <dl>
                     <div>
@@ -313,6 +474,7 @@ def build_html_report(signals, notes):
             color: white;
             font-weight: 700;
             font-size: 18px;
+            flex: 0 0 auto;
         }}
 
         .score.high {{
@@ -327,9 +489,24 @@ def build_html_report(signals, notes):
             background: var(--low);
         }}
 
+        .meta {{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+            min-width: 0;
+        }}
+
         .source {{
             color: var(--muted);
             font-size: 14px;
+            text-align: right;
+            font-weight: 700;
+        }}
+
+        .age {{
+            color: var(--muted);
+            font-size: 13px;
             text-align: right;
         }}
 
@@ -410,7 +587,7 @@ def build_html_report(signals, notes):
     </main>
 
     <footer>
-        Generováno automaticky přes GitHub Actions.
+        Generováno automaticky přes GitHub Actions. Zahrnuty jsou pouze články za posledních {MAX_AGE_DAYS} dní.
     </footer>
 </body>
 </html>
