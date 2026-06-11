@@ -5,30 +5,31 @@ scoring:
   tender_result: 70
   agency_change: 60
   procurement: 50
-  people_signal: 30
-  business_signal: 15
+  people_signal: 45
+  business_signal: 20
   context: 5
 
 companies:
   - Lenovo
+  - Samsung
   - HP
   - Hewlett Packard
   - Dell
-  - Samsung
+  - Microsoft
+  - Google
+  - Cisco
+  - Oracle
+  - IBM
+  - Intel
   - vivo
   - Xiaomi
+  - Motorola
+  - Honor
+  - Huawei
   - LG
   - Asus
   - Acer
-  - Microsoft
-  - Cisco
-  - Intel
-  - IBM
-  - Oracle
   - Logitech
-  - Huawei
-  - Honor
-  - Motorola
   - Apple
   - Meta
   - TikTok
@@ -55,17 +56,21 @@ keywords:
     - vypsala tendr
     - vypsal tendr
     - vypisuje tendr
-    - vypisuje výběrové řízení
     - vyhlašuje výběrové řízení
     - vyhlásila výběrové řízení
-    - uzavřené výběrové řízení
+    - vypisuje výběrové řízení
+    - zahajuje výběrové řízení
+    - zahájila výběrové řízení
     - otevřené výběrové řízení
+    - uzavřené výběrové řízení
     - tendr na PR agenturu
+    - tendr na komunikační agenturu
     - tendr na kreativní agenturu
     - tendr na digitální agenturu
     - tendr na mediální agenturu
     - tendr na marketingovou agenturu
     - výběrové řízení na PR agenturu
+    - výběrové řízení na komunikační agenturu
     - výběrové řízení na kreativní agenturu
     - výběrové řízení na digitální agenturu
     - výběrové řízení na mediální agenturu
@@ -73,11 +78,18 @@ keywords:
     - hledá komunikační agenturu
     - hledá kreativní agenturu
     - hledá digitální agenturu
-    - hledá nového dodavatele
-    - hledá nového partnera
-    - poptává služby
+    - hledá mediální agenturu
+    - hledá marketingovou agenturu
+    - hledá nového dodavatele PR služeb
+    - hledá nového komunikačního partnera
+    - hledá nového marketingového partnera
+    - poptává PR služby
+    - poptává komunikační služby
+    - poptává marketingové služby
     - RFI
     - RFP
+    - request for information
+    - request for proposal
 
   tender_result:
     - vítězem výběrového řízení
@@ -86,43 +98,69 @@ keywords:
     - vyhrál tendr
     - uspěla v tendru
     - uspěl v tendru
+    - uspěla ve výběrovém řízení
+    - uspěl ve výběrovém řízení
     - dokončila výběrové řízení
     - dokončil výběrové řízení
     - vybrala agenturu
     - vybral agenturu
-    - vybírá agenturu
-    - si vybrala agenturu
-    - si vybral agenturu
+    - vybrala si agenturu
+    - vybral si agenturu
+    - vybrala novou agenturu
+    - vybral novou agenturu
+    - vybrala PR agenturu
+    - vybral PR agenturu
+    - vybrala komunikační agenturu
+    - vybral komunikační agenturu
+    - vybrala kreativní agenturu
+    - vybral kreativní agenturu
+    - vybrala digitální agenturu
+    - vybral digitální agenturu
     - nově vybraná agentura
     - nově vybranou agenturou
     - agentura bude zajišťovat
+    - komunikaci bude zajišťovat
+    - komunikaci zajistí
+    - agentura zajistí
 
   agency_change:
     - mění agenturu
     - mění komunikační agenturu
     - mění PR agenturu
+    - změnila agenturu
+    - změnil agenturu
     - nová PR agentura
     - nová komunikační agentura
     - nová kreativní agentura
     - nová digitální agentura
+    - nová mediální agentura
     - stávající agentura
     - dosavadní agentura
     - ukončila spolupráci s agenturou
     - ukončil spolupráci s agenturou
     - spolupráce s novou agenturou
+    - spolupráce s agenturou
     - agenturní roster
     - agency roster
     - agency review
+    - novým partnerem pro komunikaci
+    - novým komunikačním partnerem
+    - novým marketingovým partnerem
 
   procurement:
     - procurement
     - sourcing
     - dodavatel PR služeb
     - dodavatel komunikačních služeb
+    - dodavatele PR služeb
+    - dodavatele komunikačních služeb
+    - dodavatele marketingových služeb
     - dodavatele pro oblast public relations
-    - poskytovat kompletní služby
+    - poskytovatel PR služeb
+    - poskytovatel komunikačních služeb
     - poskytovat služby v oblasti public relations
     - poskytovat služby v oblasti komunikace
+    - poskytovat služby v oblasti marketingu
     - strategický partner
     - kreativně-strategický partner
     - komunikační partner
@@ -131,47 +169,67 @@ keywords:
     - public relations
     - media relations
     - corporate communications
+    - external communications
+    - communication services
+    - marketing services
 
   people_signal:
     - nový marketingový ředitel
     - nová marketingová ředitelka
+    - nového marketingového ředitele
+    - novou marketingovou ředitelku
     - nový komunikační ředitel
     - nová komunikační ředitelka
     - nový ředitel komunikace
     - nová ředitelka komunikace
+    - nového ředitele komunikace
+    - novou ředitelku komunikace
     - communications manager
     - communications director
     - head of communications
+    - corporate communications director
+    - external communications manager
     - marketing manager
     - marketing director
     - head of marketing
+    - chief marketing officer
+    - CMO
     - country manager
+    - general manager
     - generální ředitel
+    - generální ředitelka
     - novým CEO
     - novou CEO
+    - nového CEO
+    - nová CEO
+    - novým country managerem
+    - novou country managerkou
     - posiluje marketing
     - posiluje komunikaci
+    - posiluje tým komunikace
+    - posiluje komunikační tým
 
   business_signal:
     - rebranding
     - nová strategie
+    - novou strategii
+    - strategická změna
     - expanze
+    - expanduje
     - vstup na český trh
     - vstupuje na český trh
     - spouští v Česku
     - rozšiřuje aktivity
     - posiluje na českém trhu
-    - vybrala
-    - vybral
-    - hledá
-    - spolupráce s agenturou
-    - agentura zajišťuje
-    - agentura zajistí
-    - komunikaci zajistí
-    - komunikaci bude zajišťovat
+    - nová značka na českém trhu
+    - nové zastoupení v Česku
+    - mění positioning
+    - mění pozicioning
 
   context:
     - kampaň
+    - komunikační kampaň
+    - marketingová kampaň
     - komunikace značky
     - launch
     - uvedla na trh
@@ -180,6 +238,8 @@ keywords:
     - corporate affairs
     - reputation
     - reputace
+    - brand
+    - značka
 
 sources:
   - name: Mediář
@@ -200,11 +260,32 @@ sources:
   - name: Lupa
     url: https://www.lupa.cz/rss/clanky/
 
-  - name: Google News – PR tendr
-    url: https://news.google.com/rss/search?q=%28%22PR%20agentura%22%20OR%20%22public%20relations%22%20OR%20%22komunika%C4%8Dn%C3%AD%20agentura%22%29%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20RFI%20OR%20RFP%29%20when%3A45d&hl=cs&gl=CZ&ceid=CZ:cs
+  - name: Samsung CZ newsroom
+    url: https://news.samsung.com/cz/feed
 
-  - name: Google News – kreativní a digitální agentura
-    url: https://news.google.com/rss/search?q=%28%22kreativn%C3%AD%20agentura%22%20OR%20%22digit%C3%A1ln%C3%AD%20agentura%22%20OR%20%22medi%C3%A1ln%C3%AD%20agentura%22%29%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20%22vybrala%20agenturu%22%29%20when%3A45d&hl=cs&gl=CZ&ceid=CZ:cs
+  - name: Microsoft CZ news
+    url: https://news.microsoft.com/cs-cz/feed/
 
-  - name: Google News – nový komunikační nebo marketingový ředitel
-    url: https://news.google.com/rss/search?q=%28%22marketingov%C3%BD%20%C5%99editel%22%20OR%20%22marketingov%C3%A1%20%C5%99editelka%22%20OR%20%22%C5%99editel%20komunikace%22%20OR%20%22%C5%99editelka%20komunikace%22%20OR%20%22head%20of%20communications%22%29%20when%3A45d&hl=cs&gl=CZ&ceid=CZ:cs
+  - name: Google CZ blog
+    url: https://blog.google/intl/cs-cz/rss/
+
+  - name: Vodafone CZ novinky
+    url: https://www.vodafone.cz/o-vodafonu/novinky/rss/
+
+  - name: Google News – PR a komunikační tendry
+    url: https://news.google.com/rss/search?q=%28%22PR%20agentura%22%20OR%20%22komunika%C4%8Dn%C3%AD%20agentura%22%20OR%20%22public%20relations%22%20OR%20%22media%20relations%22%29%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20RFI%20OR%20RFP%20OR%20%22hled%C3%A1%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – kreativní digitální mediální agentury
+    url: https://news.google.com/rss/search?q=%28%22kreativn%C3%AD%20agentura%22%20OR%20%22digit%C3%A1ln%C3%AD%20agentura%22%20OR%20%22medi%C3%A1ln%C3%AD%20agentura%22%20OR%20%22marketingov%C3%A1%20agentura%22%29%20%28tendr%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20%22vybrala%20agenturu%22%20OR%20%22vybral%20agenturu%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – priority technologické firmy a agentury
+    url: https://news.google.com/rss/search?q=%28Lenovo%20OR%20Samsung%20OR%20HP%20OR%20Dell%20OR%20Microsoft%20OR%20Cisco%20OR%20Oracle%20OR%20IBM%20OR%20Intel%20OR%20vivo%20OR%20Xiaomi%20OR%20Motorola%20OR%20Honor%20OR%20Vodafone%20OR%20O2%20OR%20T-Mobile%20OR%20CETIN%20OR%20Alza%20OR%20Datart%29%20%28%22PR%20agentura%22%20OR%20%22komunika%C4%8Dn%C3%AD%20agentura%22%20OR%20%22marketingov%C3%A1%20agentura%22%20OR%20%22kreativn%C3%AD%20agentura%22%20OR%20%22v%C3%BDb%C4%9Brov%C3%A9%20%C5%99%C3%ADzen%C3%AD%22%20OR%20tendr%20OR%20%22vybrala%20agenturu%22%20OR%20%22hled%C3%A1%20agenturu%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – vedení marketingu a komunikace
+    url: https://news.google.com/rss/search?q=%28%22marketingov%C3%BD%20%C5%99editel%22%20OR%20%22marketingov%C3%A1%20%C5%99editelka%22%20OR%20%22%C5%99editel%20komunikace%22%20OR%20%22%C5%99editelka%20komunikace%22%20OR%20%22head%20of%20communications%22%20OR%20%22marketing%20director%22%20OR%20CMO%20OR%20%22country%20manager%22%29%20%28Lenovo%20OR%20Samsung%20OR%20HP%20OR%20Dell%20OR%20Microsoft%20OR%20Cisco%20OR%20Oracle%20OR%20IBM%20OR%20Intel%20OR%20vivo%20OR%20Xiaomi%20OR%20Vodafone%20OR%20O2%20OR%20T-Mobile%20OR%20Alza%20OR%20Datart%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – změna agentury
+    url: https://news.google.com/rss/search?q=%28%22m%C4%9Bn%C3%AD%20agenturu%22%20OR%20%22nov%C3%A1%20PR%20agentura%22%20OR%20%22nov%C3%A1%20komunika%C4%8Dn%C3%AD%20agentura%22%20OR%20%22vybrala%20novou%20agenturu%22%20OR%20%22vybral%20novou%20agenturu%22%20OR%20%22agenturn%C3%AD%20roster%22%20OR%20%22agency%20review%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
+
+  - name: Google News – expanze technologických firem
+    url: https://news.google.com/rss/search?q=%28Lenovo%20OR%20Samsung%20OR%20HP%20OR%20Dell%20OR%20Microsoft%20OR%20Cisco%20OR%20Oracle%20OR%20IBM%20OR%20Intel%20OR%20vivo%20OR%20Xiaomi%20OR%20Motorola%20OR%20Honor%20OR%20Vodafone%20OR%20O2%20OR%20T-Mobile%20OR%20Alza%20OR%20Datart%20OR%20Wolt%20OR%20Bolt%29%20%28%22vstupuje%20na%20%C4%8Desk%C3%BD%20trh%22%20OR%20%22vstup%20na%20%C4%8Desk%C3%BD%20trh%22%20OR%20expanze%20OR%20rebranding%20OR%20%22nov%C3%A1%20strategie%22%29%20when%3A90d&hl=cs&gl=CZ&ceid=CZ:cs
