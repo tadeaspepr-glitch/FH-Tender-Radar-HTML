@@ -3,16 +3,20 @@ import re
 import html
 import time
 import yaml
+import smtplib
 import feedparser
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 
 CONFIG_FILE = "config.yaml"
 OUTPUT_DIR = "public"
 OUTPUT_FILE = "index.html"
 MAX_AGE_DAYS = 90
+EMAIL_TOP_LIMIT = 5
 
 ANCHOR_CATEGORIES = {
     "direct_tender",
@@ -320,8 +324,6 @@ def collect_signals(config):
                 strong_signals.append(signal)
                 continue
 
-            # Fallback: zobraz slabší věci, ale pouze pokud dávají aspoň nějaký BD smysl.
-            # Nepropouští samotné slovo "kampaň", pokud není sledovaná firma.
             if companies and (score >= 10 or context_matches):
                 fallback_signal = {
                     **signal,
@@ -640,9 +642,7 @@ def build_html_report(strong_signals, fallback_signals, notes):
             --dark: #111827;
         }}
 
-        * {{
-            box-sizing: border-box;
-        }}
+        * {{ box-sizing: border-box; }}
 
         body {{
             margin: 0;
@@ -842,9 +842,7 @@ def build_html_report(strong_signals, fallback_signals, notes):
             margin-bottom: 18px;
         }}
 
-        .muted {{
-            color: var(--muted);
-        }}
+        .muted {{ color: var(--muted); }}
 
         dl {{
             margin: 0 0 18px 0;
@@ -992,16 +990,196 @@ def save_html(html_body):
     return output_path
 
 
+def get_dashboard_url():
+    return os.environ.get("DASHBOARD_URL", "").strip()
+
+
+def get_top_email_signals(strong_signals, fallback_signals):
+    combined = strong_signals + fallback_signals
+    combined.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return combined[:EMAIL_TOP_LIMIT]
+
+
+def build_email_bodies(strong_signals, fallback_signals):
+    today = datetime.now().strftime("%d.%m.%Y")
+    top_signals = get_top_email_signals(strong_signals, fallback_signals)
+    dashboard_url = get_dashboard_url()
+
+    total_strong = len(strong_signals)
+    total_fallback = len(fallback_signals)
+
+    text_lines = [
+        f"Tender radar – {today}",
+        "",
+        f"Silné signály: {total_strong}",
+        f"Slabší signály k ověření: {total_fallback}",
+        "",
+        f"TOP {EMAIL_TOP_LIMIT} signálů:",
+        "",
+    ]
+
+    if not top_signals:
+        text_lines.append("Dnes nebyly nalezeny žádné signály.")
+    else:
+        for index, signal in enumerate(top_signals, start=1):
+            companies = ", ".join(signal.get("companies", [])) or "nezjištěno"
+            age = f"{signal.get('days_old')} dní" if signal.get("days_old") is not None else "nezjištěno"
+            reasons = format_reasons_text(signal.get("reasons", []))
+
+            text_lines.extend([
+                f"{index}. {signal.get('title', '')}",
+                f"Skóre: {signal.get('score', 0)}",
+                f"Firma: {companies}",
+                f"Zdroj: {signal.get('source', '')}",
+                f"Stáří: {age}",
+                f"Důvody: {reasons}",
+                f"Odkaz: {signal.get('link', '')}",
+                "",
+            ])
+
+    if dashboard_url:
+        text_lines.extend([
+            "Dashboard:",
+            dashboard_url,
+            "",
+        ])
+
+    text_body = "\n".join(text_lines)
+
+    signal_items_html = ""
+
+    if not top_signals:
+        signal_items_html = "<p>Dnes nebyly nalezeny žádné signály.</p>"
+    else:
+        for index, signal in enumerate(top_signals, start=1):
+            companies = ", ".join(signal.get("companies", [])) or "nezjištěno"
+            age = f"{signal.get('days_old')} dní" if signal.get("days_old") is not None else "nezjištěno"
+            reasons = format_reasons_text(signal.get("reasons", []))
+            badge = "Slabší signál" if signal.get("is_fallback") else "Silný signál"
+
+            signal_items_html += f"""
+            <div style="border:1px solid #e4e7ee;border-radius:14px;padding:16px;margin:14px 0;background:#ffffff;">
+                <div style="font-size:13px;color:#687082;font-weight:700;margin-bottom:6px;">
+                    {html.escape(badge)} · skóre {html.escape(str(signal.get("score", 0)))} · {html.escape(signal.get("source", ""))} · {html.escape(age)}
+                </div>
+                <h2 style="font-size:18px;line-height:1.3;margin:0 0 8px 0;">
+                    {html.escape(str(index))}. {html.escape(signal.get("title", ""))}
+                </h2>
+                <p style="margin:0 0 8px 0;color:#151922;"><strong>Firma:</strong> {html.escape(companies)}</p>
+                <p style="margin:0 0 12px 0;color:#687082;"><strong>Důvody:</strong> {html.escape(reasons)}</p>
+                <a href="{html.escape(signal.get("link", ""))}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:9px 12px;border-radius:8px;font-weight:700;">
+                    Otevřít zdroj
+                </a>
+            </div>
+            """
+
+    dashboard_button = ""
+    if dashboard_url:
+        dashboard_button = f"""
+        <p style="margin:22px 0;">
+            <a href="{html.escape(dashboard_url)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:11px 14px;border-radius:9px;font-weight:700;">
+                Otevřít celý dashboard
+            </a>
+        </p>
+        """
+
+    html_body = f"""<!doctype html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8">
+    <title>Tender radar – {today}</title>
+</head>
+<body style="margin:0;background:#f5f6fa;font-family:Arial,Helvetica,sans-serif;color:#151922;">
+    <div style="max-width:760px;margin:0 auto;padding:24px;">
+        <div style="background:#111827;color:#ffffff;border-radius:18px;padding:24px;margin-bottom:18px;">
+            <h1 style="margin:0 0 8px 0;font-size:28px;">Tender radar</h1>
+            <p style="margin:0;color:#d1d5db;">TOP {EMAIL_TOP_LIMIT} signálů · {today}</p>
+        </div>
+
+        <div style="background:#ffffff;border:1px solid #e4e7ee;border-radius:18px;padding:18px;margin-bottom:18px;">
+            <p style="margin:0 0 6px 0;"><strong>Silné signály:</strong> {total_strong}</p>
+            <p style="margin:0;"><strong>Slabší signály k ověření:</strong> {total_fallback}</p>
+            {dashboard_button}
+        </div>
+
+        {signal_items_html}
+
+        <p style="font-size:12px;color:#687082;margin-top:22px;">
+            Tento e-mail je automaticky generovaný přes GitHub Actions. Kompletní dashboard se dál ukládá do GitHub Pages.
+        </p>
+    </div>
+</body>
+</html>
+"""
+
+    return text_body, html_body
+
+
+def send_email(subject, text_body, html_body):
+    required_env = [
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+        "EMAIL_TO",
+    ]
+
+    missing = [name for name in required_env if not os.environ.get(name)]
+
+    if missing:
+        print(f"Email not sent. Missing environment variables: {', '.join(missing)}")
+        return
+
+    smtp_host = os.environ["SMTP_HOST"]
+    smtp_port = int(os.environ["SMTP_PORT"])
+    smtp_user = os.environ["SMTP_USER"]
+    smtp_password = os.environ["SMTP_PASSWORD"]
+
+    recipients = [
+        email.strip()
+        for email in os.environ["EMAIL_TO"].split(",")
+        if email.strip()
+    ]
+
+    if not recipients:
+        print("Email not sent. EMAIL_TO is empty.")
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = ", ".join(recipients)
+
+    msg.attach(MIMEText(text_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, recipients, msg.as_string())
+
+    print(f"Email sent to: {', '.join(recipients)}")
+
+
 def main():
     config = load_config()
     strong_signals, fallback_signals, notes = collect_signals(config)
 
-    text_body = build_text_report(strong_signals, fallback_signals, notes)
-    html_body = build_html_report(strong_signals, fallback_signals, notes)
+    full_text_body = build_text_report(strong_signals, fallback_signals, notes)
+    full_html_body = build_html_report(strong_signals, fallback_signals, notes)
 
-    output_path = save_html(html_body)
+    output_path = save_html(full_html_body)
 
-    print(text_body)
+    email_text_body, email_html_body = build_email_bodies(
+        strong_signals,
+        fallback_signals,
+    )
+
+    subject = f"Tender radar – {datetime.now().strftime('%d.%m.%Y')}"
+
+    send_email(subject, email_text_body, email_html_body)
+
+    print(full_text_body)
     print("")
     print(f"HTML report saved to: {output_path}")
 
